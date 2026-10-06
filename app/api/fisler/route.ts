@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { SALES_RETURN_WHERE, isSalesReturn } from "@/lib/cari/invoice-direction"
 
 export const dynamic = "force-dynamic"
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic"
  * Fiş listesi (hızlı satış/alış ile kesilen gayriresmî belgeler).
  * Query:
  *  - companyId  (zorunlu)
- *  - direction  ("outgoing" = satış fişleri | "incoming" = alış fişleri)
+ *  - direction  ("outgoing" = satış fişleri + satış iade fişleri | "incoming" = alış fişleri)
  *  - customerId (opsiyonel) — yalnız bu müşterinin fişleri (cari detay için)
  *  - supplierId (opsiyonel) — yalnız bu tedarikçinin fişleri (cari detay için)
  *
@@ -30,7 +31,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
     await ensureCompanyAccess(companyId)
 
     const direction = url.searchParams.get("direction") === "incoming" ? "incoming" : "outgoing"
-    const type = direction === "incoming" ? "PURCHASE" : "SALES"
+    // Satış tarafında İADE FİŞLERİ de listelenir (Hızlı Satış "İade modu"):
+    // ayrı bir listeleri olsaydı satışçı iadeyi kestiği yerde bulamazdı.
+    const typeFilter =
+      direction === "incoming" ? { type: "PURCHASE" } : { OR: [{ type: "SALES" }, SALES_RETURN_WHERE()] }
 
     // Cari detay sayfası tek bir cariye ait fişleri ister; verilirse ona göre süz.
     const customerId = url.searchParams.get("customerId") || undefined
@@ -56,7 +60,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
       where: {
         companyId,
         isReceipt: true,
-        type,
+        AND: [typeFilter],
         ...cariFilter,
         ...statusFilter,
       },
@@ -88,6 +92,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
         id: r.id,
         slug: r.slug,
         direction,
+        // İade fişi: tutar müşteriye ÖDENİR, "ödenen" iade edilen paradır.
+        isReturn: isSalesReturn(r),
         status: r.status,
         // Arşivde "hangi faturaya dönüştü" bilgisi gösterilir (resmi GİB no öncelikli).
         convertedInvoiceId: r.convertedInvoice?.id ?? null,
@@ -113,9 +119,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
       }
     })
 
+    // Toplam NET satıştır: iade fişi düşülür (KDV ve satış raporuyla aynı işaret).
     const totals = {
       count: rows.length,
-      sum: rows.reduce((s, r) => s + r.totalAmount, 0),
+      sum: rows.reduce((s, r) => s + (r.isReturn ? -r.totalAmount : r.totalAmount), 0),
     }
 
     return NextResponse.json({ rows, totals })

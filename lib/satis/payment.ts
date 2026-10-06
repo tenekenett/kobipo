@@ -206,6 +206,24 @@ export function accountForMethod(method: string, ids: DefaultPaymentAccounts): s
       : ids.bankAccountId
 }
 
+/**
+ * Yöntem değişince tek yöntemli tahsilatın HESABI da o yöntemin kanalına geçer
+ * (nakit → kasa, kart → POS/kredi kartı hesabı yoksa banka, havale/yemek kartı →
+ * banka). Parçalı ödeme bunu `buildPaymentParts`ta zaten yapıyor; tek yöntemde
+ * ise hesap seçimi yöntemden bağımsızdı: kartla satış, kasiyer hesap listesini
+ * elle değiştirmezse KASA'ya yazılıyordu (2026-10-06; Hızlı Satış, Kahveci,
+ * Adisyon). Kanal yoksa mevcut seçim kalır; liste sonra elle değiştirilebilir.
+ * Değişiklik hesabı açıkça veriyorsa ona dokunulmaz.
+ */
+export function withMethodChannel(
+  patch: Partial<PaymentState>,
+  ids: DefaultPaymentAccounts
+): Partial<PaymentState> {
+  if (!patch.method || patch.accountId !== undefined) return patch
+  const channel = accountForMethod(patch.method, ids)
+  return channel ? { ...patch, accountId: channel } : patch
+}
+
 export function buildPaymentParts(
   state: PaymentState,
   args: { total: number } & DefaultPaymentAccounts

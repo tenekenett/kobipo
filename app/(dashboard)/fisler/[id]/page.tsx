@@ -32,6 +32,8 @@ type FisDetail = {
   slug: string
   receiptNo: string
   direction: "outgoing" | "incoming"
+  /** Satış iade fişi (Hızlı Satış "İade modu"): tutar müşteriye ödenir, faturaya dönüşmez. */
+  isReturn?: boolean
   status: string
   date: string
   createdAt: string
@@ -77,6 +79,12 @@ const PAYMENT_BADGE: Record<FisDetail["paymentStatus"], { label: string; variant
   PAID: { label: "Tahsil edildi", variant: "odendi" },
   PARTIAL: { label: "Kısmî", variant: "bekliyor" },
   OPEN: { label: "Açık hesap", variant: "secondary" },
+}
+
+const RETURN_PAYMENT_BADGE: Record<FisDetail["paymentStatus"], { label: string; variant: Variant }> = {
+  PAID: { label: "İade edildi", variant: "odendi" },
+  PARTIAL: { label: "Kısmî iade", variant: "bekliyor" },
+  OPEN: { label: "Cariye alacak", variant: "secondary" },
 }
 
 const STATUS_BADGE: Record<string, { label: string; variant: Variant }> = {
@@ -172,6 +180,7 @@ export default function FisDetayPage() {
       paymentLabel: fis.payments[0]?.paymentMethodLabel ?? "",
       tendered: fis.paidAmount,
       notes: fis.notes,
+      isReturn: fis.isReturn,
       // change verilmez: sonradan yazdırmada para üstü bilinmiyor → satır çıkmaz.
     }
     const w = window.open("", "_blank", "width=420,height=720")
@@ -291,9 +300,11 @@ export default function FisDetayPage() {
   }
 
   const statusBadge = STATUS_BADGE[fis.status] ?? { label: fis.status, variant: "secondary" as Variant }
-  const payBadge = PAYMENT_BADGE[fis.paymentStatus]
+  const isReturn = fis.isReturn === true
+  const payBadge = (isReturn ? RETURN_PAYMENT_BADGE : PAYMENT_BADGE)[fis.paymentStatus]
   const cariLabel = fis.direction === "incoming" ? "Tedarikçi" : "Müşteri"
   const isActive = fis.status !== "CONVERTED" && fis.status !== "CANCELLED"
+  const docLabel = isReturn ? "İade fişi" : fis.direction === "incoming" ? "Alış fişi" : "Satış fişi"
 
   return (
     <div className="space-y-4 p-4">
@@ -311,8 +322,7 @@ export default function FisDetayPage() {
               {fis.receiptNo}
             </h1>
             <p className="text-sm text-muted-foreground">
-              {fis.direction === "incoming" ? "Alış fişi" : "Satış fişi"} — gayriresmî belge, GİB'e
-              gönderilmez.
+              {docLabel} — gayriresmî belge, GİB&apos;e gönderilmez.
             </p>
           </div>
         </div>
@@ -337,19 +347,22 @@ export default function FisDetayPage() {
               )}`}
             >
               <Wallet className="mr-2 h-4 w-4" />
-              Tahsilat
+              {isReturn ? "İade Ödemesi" : "Tahsilat"}
             </Link>
           </Button>
           {isActive && (
             <WriteAction>
-              <Button size="sm" onClick={convert} disabled={busy}>
-                {busy ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                Faturaya Dönüştür
-              </Button>
+              {/* İade fişi faturaya dönüştürülmez (uç da reddeder). */}
+              {!isReturn && (
+                <Button size="sm" onClick={convert} disabled={busy}>
+                  {busy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  Faturaya Dönüştür
+                </Button>
+              )}
               <Button variant="destructive" size="sm" onClick={cancel} disabled={busy}>
                 <XCircle className="mr-2 h-4 w-4" />
                 İptal Et
@@ -444,12 +457,12 @@ export default function FisDetayPage() {
               <span className="tabular-nums">{currency(fis.totalAmount)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Tahsil edilen</span>
+              <span className="text-muted-foreground">{isReturn ? "İade edilen" : "Tahsil edilen"}</span>
               <span className="tabular-nums">{currency(fis.paidAmount)}</span>
             </div>
             {fis.totalAmount - fis.paidAmount > 0.005 && (
               <div className="flex justify-between font-semibold">
-                <span>Kalan</span>
+                <span>{isReturn ? (fis.counterpartyId ? "Cariye alacak" : "Ödenmeyen") : "Kalan"}</span>
                 <span className="tabular-nums">{currency(fis.totalAmount - fis.paidAmount)}</span>
               </div>
             )}
@@ -496,7 +509,7 @@ export default function FisDetayPage() {
       {fis.payments.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Tahsilat / Ödemeler</CardTitle>
+            <CardTitle className="text-base">{isReturn ? "İade Ödemeleri" : "Tahsilat / Ödemeler"}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">

@@ -61,6 +61,16 @@ export const POST = withApiErrors(async function POST(request: Request) {
       )
     }
 
+    // İade fişi (Hızlı Satış "İade modu") birleştirilmez: satış fişleriyle aynı
+    // faturaya girerse iade SATIŞ diye faturalanır; tek başına da resmî iade
+    // faturası için asıl faturaya atıf gerekir (bu uç onu kurmuyor).
+    if (receipts.some((r) => r.type === "RETURN")) {
+      return NextResponse.json(
+        { error: "İade fişi faturaya dönüştürülemez. Seçimden çıkarıp tekrar deneyin." },
+        { status: 400 },
+      )
+    }
+
     // Tümü aynı tip olmalı.
     const type = receipts[0].type
     if (receipts.some((r) => r.type !== type)) {

@@ -6,6 +6,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { DEFAULT_RECEIPT_TEMPLATE, normalizeReceiptTemplate } from "@/lib/fis/receipt-template"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { isSalesReturn } from "@/lib/cari/invoice-direction"
 
 export const dynamic = "force-dynamic"
 
@@ -71,7 +72,9 @@ export const GET = withApiErrors(async function GET(
 
     if (!receipt) return NextResponse.json({ error: "Fiş bulunamadı" }, { status: 404 })
 
-    const direction = receipt.type === "SALES" ? "outgoing" : "incoming"
+    // Satış iade fişi satış tarafındadır (müşteri, Satış Fişleri listesi).
+    const isReturn = isSalesReturn(receipt)
+    const direction = receipt.type === "SALES" || isReturn ? "outgoing" : "incoming"
     const total = Number(receipt.totalAmount)
     const paid = receipt.payments.reduce((s, p) => s + Number(p.amount), 0)
 
@@ -80,6 +83,7 @@ export const GET = withApiErrors(async function GET(
       slug: receipt.slug,
       receiptNo: receipt.invoiceNo,
       direction,
+      isReturn,
       status: receipt.status,
       date: receipt.date.toISOString(),
       createdAt: receipt.createdAt.toISOString(),
@@ -106,8 +110,9 @@ export const GET = withApiErrors(async function GET(
       paymentStatus: paid <= 0 ? "OPEN" : paid + 0.01 >= total ? "PAID" : "PARTIAL",
       notes: receipt.notes,
       // Yazarkasa (ÖKC) mali kimliği — yalnız satış fişinde anlamlı (docs/okc/ASAMA1-KOBIPO.md).
+      // İade fişi yazarkasaya bağlanmaz: Kobipo'daki iade cihazda belge basmaz.
       okc:
-        direction === "outgoing"
+        direction === "outgoing" && !isReturn
           ? {
               deviceId: receipt.okcDeviceId,
               deviceName: receipt.okcDevice?.name ?? null,

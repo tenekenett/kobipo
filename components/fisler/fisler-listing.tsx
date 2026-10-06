@@ -17,6 +17,7 @@ import {
 import { useToast } from "@/components/ui/use-toast"
 import { Archive, FileText, Loader2, Receipt } from "lucide-react"
 import { WriteAction } from "@/components/dashboard/write-guard"
+import { cn } from "@/lib/utils"
 
 type Scope = "active" | "archived"
 
@@ -39,6 +40,8 @@ type ReceiptRow = {
   totalAmount: number
   paidAmount: number
   paymentStatus: "OPEN" | "PARTIAL" | "PAID"
+  /** Satış iade fişi (Hızlı Satış "İade modu"): tutar müşteriye ödenir, faturaya dönüşmez. */
+  isReturn?: boolean
 }
 
 const fmt = (n: number) =>
@@ -50,6 +53,13 @@ const PAYMENT_BADGE: Record<ReceiptRow["paymentStatus"], { label: string; varian
   PAID: { label: "Tahsil edildi", variant: "odendi" },
   PARTIAL: { label: "Kısmî", variant: "bekliyor" },
   OPEN: { label: "Açık hesap", variant: "secondary" },
+}
+
+/** İade fişinde "ödenen" müşteriye İADE EDİLEN paradır; ödenmeyen kısım alacaktır. */
+const RETURN_PAYMENT_BADGE: Record<ReceiptRow["paymentStatus"], { label: string; variant: Variant }> = {
+  PAID: { label: "İade edildi", variant: "odendi" },
+  PARTIAL: { label: "Kısmî iade", variant: "bekliyor" },
+  OPEN: { label: "Cariye alacak", variant: "secondary" },
 }
 
 /** Arşivdeki fişin neden kapandığı: iptal mi, faturaya mı dönüştü. */
@@ -120,7 +130,8 @@ export default function FislerListing({
 
   // "Tümünü seç" GÖRÜNEN sayfayı seçer. Yüklenen 500 satırın tamamını seçseydi
   // kullanıcı 50 satır görürken toplu dönüştürme görmediği fişlere de işlerdi.
-  const pageIds = paged.pageRows.map((r) => r.id)
+  // İade fişi seçilemez: faturaya dönüştürülmez (uç da reddeder).
+  const pageIds = paged.pageRows.filter((r) => !r.isReturn).map((r) => r.id)
   const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id))
   const toggleAll = () =>
     setSelected((prev) => {
@@ -145,6 +156,7 @@ export default function FislerListing({
 
   let blockReason: string | null = null
   if (selectedRows.length === 0) blockReason = "Dönüştürmek için fiş seçin"
+  else if (selectedRows.some((r) => r.isReturn)) blockReason = "İade fişi faturaya dönüştürülemez"
   else if (distinctCari.size > 1) blockReason = `Yalnızca aynı ${cariLabel.toLowerCase()} fişleri birleştirilebilir`
   else if (!selectedCari) blockReason = `${cariLabel}i olmayan fişler faturaya dönüştürülemez`
 
@@ -296,7 +308,7 @@ export default function FislerListing({
                     // Aktifte ödeme durumu, arşivde kapanma sebebi (iptal/dönüştürüldü) gösterilir.
                     const badge = isArchive
                       ? ARCHIVE_BADGE[r.status] ?? { label: r.status, variant: "secondary" as Variant }
-                      : PAYMENT_BADGE[r.paymentStatus]
+                      : (r.isReturn ? RETURN_PAYMENT_BADGE : PAYMENT_BADGE)[r.paymentStatus]
                     return (
                       <TableRow
                         key={r.id}
@@ -308,15 +320,22 @@ export default function FislerListing({
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
-                              className="rounded"
+                              className="rounded disabled:opacity-30"
                               aria-label={`${r.receiptNo} seç`}
                               checked={selected.has(r.id)}
+                              disabled={r.isReturn}
+                              title={r.isReturn ? "İade fişi faturaya dönüştürülemez" : undefined}
                               onChange={() => toggle(r.id)}
                             />
                           </TableCell>
                         )}
                         <TableCell className="font-mono text-sm font-medium">
                           {r.receiptNo}
+                          {r.isReturn && (
+                            <span className="ml-2 font-sans">
+                              <Badge variant="destructive">İade</Badge>
+                            </span>
+                          )}
                           {isArchive && r.convertedInvoiceNo && (
                             <span className="ml-2 font-sans text-xs font-normal text-muted-foreground">
                               → {r.convertedInvoiceNo}
@@ -337,7 +356,14 @@ export default function FislerListing({
                           {new Date(r.date).toLocaleDateString("tr-TR")}
                         </TableCell>
                         <TableCell>{r.counterpartyName ?? <span className="text-muted-foreground">—</span>}</TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums">{fmt(r.totalAmount)}</TableCell>
+                        <TableCell
+                          className={cn(
+                            "text-right font-semibold tabular-nums",
+                            r.isReturn && "text-red-600 dark:text-red-400"
+                          )}
+                        >
+                          {r.isReturn ? `−${fmt(r.totalAmount)}` : fmt(r.totalAmount)}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{fmt(r.paidAmount)}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant={badge.variant}>{badge.label}</Badge>

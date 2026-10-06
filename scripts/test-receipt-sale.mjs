@@ -270,5 +270,86 @@ console.log("\n7) Seçeneğin reçete etkisi fiş ucuna GİDER, faturaya yazılm
   check("kalem adı/fiyatı değişmedi", sent[0]?.description === "Latte · Soya sütü" && sent[0]?.unitPrice === 100)
 }
 
+console.log("\n8) İade fişi (Hızlı Satış \"İade modu\") — RETURN + SALES yönü, ödeme müşteriye")
+{
+  const calls = stubFetch([
+    { ok: true, status: 200, json: { id: "inv9", invoiceNo: "FS-IAD-2026-0001", totalAmount: 120 } },
+    { ok: true, status: 200, json: { id: "pay9" } },
+  ])
+  const res = await submitReceiptSale({
+    companyId: "c1",
+    items: ITEMS,
+    payment: { ...emptyPaymentState("acc-cash"), method: "CASH" },
+    accounts: ACCOUNTS,
+    fallbackTotal: 120,
+    isReturn: true,
+  })
+  check("sonuç başarılı", res.ok === true)
+  check("belge RETURN", calls[0]?.body?.type === "RETURN", calls[0]?.body?.type)
+  check("yön SATIŞ iadesi (stok girer, müşteri tarafı)", calls[0]?.body?.returnKind === "SALES")
+  check("yine fiş + MANUAL", calls[0]?.body?.isReceipt === true && calls[0]?.body?.invoiceType === "MANUAL")
+  check("ödeme sunucu toplamıyla yazıldı", calls[1]?.body?.amount === 120, String(calls[1]?.body?.amount))
+
+  // İade değilken alan hiç gitmez — satış gövdesi eskisi gibi kalır.
+  const saleCalls = stubFetch([
+    { ok: true, status: 200, json: { id: "inv10", invoiceNo: "FS-SAT-2026-0010", totalAmount: 120 } },
+    { ok: true, status: 200, json: { id: "pay10" } },
+  ])
+  await submitReceiptSale({
+    companyId: "c1",
+    items: ITEMS,
+    payment: emptyPaymentState("acc-cash"),
+    accounts: ACCOUNTS,
+    fallbackTotal: 120,
+  })
+  check(
+    "satışta type SALES, returnKind YOK",
+    saleCalls[0]?.body?.type === "SALES" && !("returnKind" in (saleCalls[0]?.body ?? {})),
+  )
+}
+
+console.log("\n9) Alış fişi (Hızlı Alış) — PURCHASE, karşı taraf tedarikçi")
+{
+  const calls = stubFetch([
+    { ok: true, status: 200, json: { id: "inv11", invoiceNo: "FS-ALI-2026-0001", totalAmount: 120 } },
+    { ok: true, status: 200, json: { id: "pay11" } },
+  ])
+  const res = await submitReceiptSale({
+    companyId: "c1",
+    direction: "purchase",
+    items: ITEMS,
+    payment: { ...emptyPaymentState("acc-cash"), method: "CASH" },
+    accounts: ACCOUNTS,
+    supplierId: "sup1",
+    customerId: "yanlislikla-verilen-musteri",
+    fallbackTotal: 120,
+  })
+  const body = calls[0]?.body ?? {}
+  check("sonuç başarılı", res.ok === true)
+  check("belge PURCHASE", body.type === "PURCHASE", body.type)
+  check("tedarikçi gitti", body.supplierId === "sup1")
+  check("alışta müşteri alanı GİTMEZ", !("customerId" in body))
+  check("ödeme sunucu toplamıyla", calls[1]?.body?.amount === 120, String(calls[1]?.body?.amount))
+
+  const ret = stubFetch([
+    { ok: true, status: 200, json: { id: "inv12", invoiceNo: "FS-IAD-2026-0002", totalAmount: 120 } },
+    { ok: true, status: 200, json: { id: "pay12" } },
+  ])
+  await submitReceiptSale({
+    companyId: "c1",
+    direction: "purchase",
+    isReturn: true,
+    items: ITEMS,
+    payment: emptyPaymentState("acc-cash"),
+    accounts: ACCOUNTS,
+    supplierId: "sup1",
+    fallbackTotal: 120,
+  })
+  check(
+    "alış iadesi RETURN + PURCHASE yönü",
+    ret[0]?.body?.type === "RETURN" && ret[0]?.body?.returnKind === "PURCHASE",
+  )
+}
+
 console.log(`\n${fail === 0 ? "TÜMÜ GEÇTİ" : "BAŞARISIZ"} — ${pass} geçti, ${fail} kaldı`)
 process.exitCode = fail === 0 ? 0 : 1

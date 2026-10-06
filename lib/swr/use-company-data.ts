@@ -51,6 +51,12 @@ export type RefCounterparty = {
   /** Takma ad — cari seçicide ünvanın altında görünür ve aramada eşleşir. */
   nickname?: string | null
   taxNumber?: string | null
+  /**
+   * Cari bakiyesi — liste ucunun hesapladığı (lib/cari/list-query.ts; müşteride
+   * + = bize borçlu, tedarikçide + = biz borçluyuz). Liste 15 sn önbelleklidir:
+   * ekranda "anlık" diye sunulmaz, işlemden sonra `mutate` ile tazelenir.
+   */
+  balance?: number | null
 }
 export type RefAccount = { id: string; name: string; type: string; iban?: string | null; currency?: string }
 /** İK kartı — restoran ekranlarında "iskontoyu uygulayan personel" seçimi için. */
@@ -114,6 +120,7 @@ function useCounterparties(companyId: string | null, path: string) {
       name: c.name,
       nickname: c.nickname ?? null,
       taxNumber: c.taxNumber ?? null,
+      balance: c.balance != null && Number.isFinite(Number(c.balance)) ? Number(c.balance) : null,
     }))
   }, [data])
   return { list, isLoading, error, mutate }

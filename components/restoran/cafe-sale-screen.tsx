@@ -45,7 +45,8 @@ import {
 import { MenuGrid } from "@/components/restoran/menu-grid"
 import { ChecklistBanner } from "@/components/restoran/checklist-banner"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
-import { PaymentPanel } from "@/components/satis/payment-panel"
+import { PaymentPanel, type PaymentShortcuts } from "@/components/satis/payment-panel"
+import { FullscreenButton, Kbd, RecentDocBar, anyDialogOpen, type RecentDoc } from "@/components/satis/counter-ui"
 import { useToast } from "@/components/ui/use-toast"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import {
@@ -62,6 +63,8 @@ import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-
 import { useTryPrice } from "@/lib/exchange/use-try-price"
 import { qty } from "@/lib/format"
 import {
+  defaultPaymentAccounts,
+  withMethodChannel,
   emptyPaymentState,
   paymentLabelOf,
   paymentSummary,
@@ -162,6 +165,12 @@ type Shortage = {
   sources: string[]
 }
 
+// Tek tuşla ödeme (Hızlı Satış/Alış ile aynı tuşlar): yöntemi seçer VE satışı
+// tamamlar. F2 seçili yöntemle tamamlar.
+type QuickPay = "CASH" | "CREDIT_CARD" | "CREDIT"
+const PAY_KEYS: Record<string, QuickPay> = { F8: "CASH", F9: "CREDIT_CARD", F10: "CREDIT" }
+const PAY_SHORTCUTS: PaymentShortcuts = { CASH: "F8", CREDIT_CARD: "F9", CREDIT: "F10" }
+
 export function CafeSaleScreen() {
   const { selectedCompanyId: companyId, selectedCompany } = useDashboardCompany()
   const { toast } = useToast()
@@ -209,6 +218,8 @@ export function CafeSaleScreen() {
   const [lastSale, setLastSale] = useState<
     { id: string; invoiceNo?: string | null; receipt: ReceiptData } | null
   >(null)
+  /** Son işlem satırı — satış penceresi kapandıktan sonra da durur (yeniden yazdırma için). */
+  const [recent, setRecent] = useState<(RecentDoc & { receipt: ReceiptData }) | null>(null)
 
   const patchPayment = useCallback(
     (patch: Partial<PaymentState>) => setPayment((p) => ({ ...p, ...patch })),
@@ -515,15 +526,22 @@ export function CafeSaleScreen() {
     shortPayAcked.current = false
   }, [])
 
-  const handleComplete = useCallback(async () => {
+  /**
+   * Satışı tamamlar. `override` tek tuşla ödemeden gelir (F8/F9/F10): state
+   * güncellemesi bu çağrıda henüz görünmediği için seçilen yöntem buradan
+   * birleştirilir.
+   */
+  const handleComplete = useCallback(async (override?: Partial<PaymentState>) => {
     if (!companyId || cart.length === 0 || submitLock.current) return
+    const pay: PaymentState = override ? { ...payment, ...override } : payment
     if (cart.some((l) => l.quantity <= 0)) {
       toast({ title: "Geçersiz miktar", description: "Tüm satırlarda adet 0'dan büyük olmalı", variant: "destructive" })
       return
     }
 
-    if (!payment.isCredit && summary.remaining > 0.005 && !customerId && !shortPayAcked.current) {
-      setShortPayWarn(summary.remaining)
+    const pending = paymentSummary(pay, totals.total)
+    if (!pay.isCredit && pending.remaining > 0.005 && !customerId && !shortPayAcked.current) {
+      setShortPayWarn(pending.remaining)
       return
     }
 
@@ -611,7 +629,7 @@ export function CafeSaleScreen() {
             recipeFactor,
           }
         }),
-        payment,
+        payment: pay,
         accounts,
         customerId,
         warehouseId,
@@ -651,7 +669,7 @@ export function CafeSaleScreen() {
       }
 
       const { invoice, parts, paidSum, total: invoiceTotal, accountNote } = result
-      const done = paymentSummary(payment, invoiceTotal)
+      const done = paymentSummary(pay, invoiceTotal)
       // Hesapsız tahsilat varsayılan Kasa'ya düştü: söylenir; kasa yeni açıldıysa
       // liste tazelenir ki sonraki satış onu açıkça seçsin.
       if (accountNote) void mutateAccounts()
@@ -659,7 +677,7 @@ export function CafeSaleScreen() {
         title: "Satış tamamlandı",
         description: withAccountNote(
           `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
-            payment.isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
+            pay.isCredit ? " (veresiye)" : ` • ${currency(paidSum)} tahsil edildi`
           }`,
           accountNote,
         ),
@@ -689,15 +707,23 @@ export function CafeSaleScreen() {
         total: invoiceTotal,
         // Parçalı ödemede döküm `parts`ta; buradaki etiket tek yöntemli satışın başlığı.
         discount: t.discount > 0 ? { label: discountLabel ?? "İskonto", amount: t.discount } : null,
-        paymentLabel: payment.isCredit
+        paymentLabel: pay.isCredit
           ? "Veresiye"
-          : paymentLabelOf(payment.method, payment.provider),
+          : paymentLabelOf(pay.method, pay.provider),
         tendered: done.tendered,
         change: done.change,
-        isCredit: payment.isCredit,
-        parts: payment.splitMode && !payment.isCredit ? receiptParts(parts) : undefined,
+        isCredit: pay.isCredit,
+        parts: pay.splitMode && !pay.isCredit ? receiptParts(parts) : undefined,
       }
       setLastSale({ id: invoice.id, invoiceNo: invoice.invoiceNo, receipt })
+      setRecent({
+        id: invoice.id,
+        invoiceNo: invoice.invoiceNo,
+        total: invoiceTotal,
+        paymentLabel: pay.splitMode && !pay.isCredit ? "Parçalı" : receipt.paymentLabel,
+        change: done.change,
+        receipt,
+      })
       resetSale()
     } catch (error: any) {
       toast({
@@ -714,7 +740,6 @@ export function CafeSaleScreen() {
     companyId,
     cart,
     totals,
-    summary.remaining,
     discountLabel,
     customerId,
     warehouseId,
@@ -752,16 +777,55 @@ export function CafeSaleScreen() {
   // `e.repeat` elenir: tuş basılı tutulduğunda tarayıcı saniyede onlarca keydown
   // üretir. Satış diyaloğu açıkken de çalışmaz — kasiyer "Yeni Satış"a basmadan
   // önce F2'ye dokunursa boş sepetle ikinci bir istek gitmesin.
+  //
+  // F8 nakit, F9 kart, F10 veresiye: yöntemi seçip hemen tamamlar (Hızlı Satış'la
+  // aynı tuşlar). Açık bir pencere varken (seçenek, iskonto, eksik tahsilat
+  // onayı) çalışmaz — pencerenin arkasında satış kapanmasın.
+  const channelIds = useMemo(() => defaultPaymentAccounts(accounts), [accounts])
+  const quickPay = useCallback(
+    (kind: QuickPay) => {
+      const patch: Partial<PaymentState> =
+        kind === "CREDIT"
+          ? { isCredit: true, splitMode: false }
+          : withMethodChannel(
+              { method: kind, isCredit: false, splitMode: false, ...(kind !== "CASH" ? { tendered: "" } : {}) },
+              channelIds
+            )
+      patchPayment(patch)
+      void handleComplete(patch)
+    },
+    [patchPayment, handleComplete, channelIds]
+  )
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "F2" || e.repeat) return
-      if (lastSale !== null) return
+      const kind = e.key === "F2" ? "F2" : PAY_KEYS[e.key]
+      if (!kind) return
+      // F10 tarayıcının menüsünü açar; bu ekranda tuş bizimdir.
       e.preventDefault()
-      void handleComplete()
+      if (e.repeat || lastSale !== null || shortPayWarn !== null || anyDialogOpen()) return
+      if (kind === "F2") void handleComplete()
+      else if (cart.length > 0) quickPay(kind)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [handleComplete, lastSale])
+  }, [handleComplete, quickPay, lastSale, shortPayWarn, cart.length])
+
+  /** Son işlem satırından fişi yeniden yazdır (pencere kapandıktan sonra da). */
+  const printRecent = () => {
+    if (!recent) return
+    const w = window.open("", "_blank", "width=420,height=720")
+    if (!w) {
+      toast({
+        title: "Açılır pencere engellendi",
+        description: "Fiş için bu siteye açılır pencere izni verin.",
+        variant: "destructive",
+      })
+      return
+    }
+    w.document.write(buildReceiptHtml(recent.receipt, true, receiptTemplate))
+    w.document.close()
+    w.focus()
+  }
 
   // autoPrint=true → pencere açılır açılmaz yazdırma diyaloğu gelir.
   const openReceipt = (autoPrint: boolean) => {
@@ -819,6 +883,10 @@ export function CafeSaleScreen() {
       {/* Açılış listesi uyarısı — ENGELLEMEZ, yetersiz stok uyarısıyla aynı
           gerekçe (dosya başlığı): engelleyici kontrol kasayı kilitler. */}
       <ChecklistBanner type="OPENING" />
+
+      <RecentDocBar label="Son satış" idleText="Satış bekleniyor" doc={recent} onPrint={printRecent}>
+        <FullscreenButton />
+      </RecentDocBar>
 
       <div className="grid items-start gap-4 xl:grid-cols-[1fr_400px]">
         {/* === SOL: menü === */}
@@ -973,6 +1041,7 @@ export function CafeSaleScreen() {
                 state={payment}
                 onChange={patchPayment}
                 accounts={accounts}
+                shortcuts={PAY_SHORTCUTS}
               />
               {/* Perakende varsayılan: cari yalnız veresiyede sorulur. */}
               {payment.isCredit && (
@@ -1036,7 +1105,8 @@ export function CafeSaleScreen() {
               <Button
                 className="mt-1 h-14 w-full text-base"
                 variant="success"
-                onClick={handleComplete}
+                // Sarmalı: handleComplete'in ilk argümanı ödeme seçimi — tıklama olayı oraya gitmesin.
+                onClick={() => void handleComplete()}
                 disabled={isSubmitting || cart.length === 0}
               >
                 {isSubmitting ? (
@@ -1057,9 +1127,7 @@ export function CafeSaleScreen() {
                 )}
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                İpucu:{" "}
-                <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">F2</kbd>{" "}
-                ile satışı tamamla
+                <Kbd>F2</Kbd> tamamla · <Kbd>F8</Kbd> nakit · <Kbd>F9</Kbd> kart · <Kbd>F10</Kbd> veresiye
               </p>
             </CardContent>
           </Card>

@@ -1,6 +1,7 @@
 "use client"
 
-// Fiş kesme + tahsilat akışının TEK yeri (Kahveci Satış ve Adisyon kapanışı).
+// Fiş kesme + tahsilat akışının TEK yeri (Hızlı Satış, Hızlı Alış, Kahveci Satış
+// ve Adisyon kapanışı).
 //
 // Neden ortak: iki ekran da aynı üç adımı yapıyor — fişi oluştur, SUNUCUNUN
 // yazdığı toplam üzerinden ödeme parçalarını hesapla, her parçayı tahsilat
@@ -67,6 +68,8 @@ export async function submitReceiptSale(args: {
   payment: PaymentState
   accounts: RefAccount[]
   customerId?: string | null
+  /** Alış fişinde tedarikçi (`direction: "purchase"`). */
+  supplierId?: string | null
   warehouseId?: string | null
   notes?: string | null
   /**
@@ -76,16 +79,31 @@ export async function submitReceiptSale(args: {
   globalDiscountAmount?: number | null
   /** İstemcinin hesapladığı toplam; sunucu toplam döndürmezse yedek olarak kullanılır. */
   fallbackTotal: number
+  /**
+   * SATIŞ İADE FİŞİ (Hızlı Satış "İade modu"): belge `RETURN` + `returnKind: SALES`
+   * kesilir — stok GİRER, ödeme parçaları müşteriye ÖDEMEDİR (kasadan çıkar; yön
+   * ödeme ucunda faturanın tipinden okunur). Veresiye = müşterinin alacağı.
+   */
+  isReturn?: boolean
+  /**
+   * ALIŞ FİŞİ (Hızlı Alış): belge `PURCHASE` (iadede `RETURN` + `PURCHASE` yönü),
+   * karşı taraf tedarikçi. Ödeme yönü yine ödeme ucunda belgenin tipinden okunur:
+   * alış ödemesi kasadan çıkar, alış iadesinin parası kasaya girer.
+   */
+  direction?: "sales" | "purchase"
 }): Promise<ReceiptSaleResult> {
+  const purchase = args.direction === "purchase"
+  const docType = args.isReturn ? "RETURN" : purchase ? "PURCHASE" : "SALES"
   const invoiceRes = await fetch("/api/e-donusum/invoices", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       companyId: args.companyId,
-      type: "SALES",
+      type: docType,
+      ...(args.isReturn ? { returnKind: purchase ? "PURCHASE" : "SALES" } : {}),
       invoiceType: "MANUAL",
       isReceipt: true,
-      customerId: args.customerId || null,
+      ...(purchase ? { supplierId: args.supplierId || null } : { customerId: args.customerId || null }),
       warehouseId: args.warehouseId || undefined,
       date: new Date().toISOString(),
       currency: "TRY",
@@ -110,7 +128,13 @@ export async function submitReceiptSale(args: {
 
   const invoice = await invoiceRes.json().catch(() => ({}))
   if (!invoiceRes.ok) {
-    return { ok: false, stage: "invoice", error: invoice?.error || "Satış fişi oluşturulamadı" }
+    return {
+      ok: false,
+      stage: "invoice",
+      error:
+        invoice?.error ||
+        (args.isReturn ? "İade fişi oluşturulamadı" : purchase ? "Alış fişi oluşturulamadı" : "Satış fişi oluşturulamadı"),
+    }
   }
 
   const total =

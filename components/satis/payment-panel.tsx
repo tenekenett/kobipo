@@ -11,6 +11,7 @@
 // ödeyecek" kafede en sık bölme biçimi ve eski modelde iki kart tek satıra
 // çöküyordu — POS'ta iki ayrı çekim yapılırken kayıtta tek satır kalıyordu.
 
+import { useMemo } from "react"
 import { Banknote, CreditCard, Landmark, Plus, Split, Ticket, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,12 +29,14 @@ import {
   MEAL_CARD_PROVIDERS,
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
+  defaultPaymentAccounts,
   newPortion,
   parseAmount,
   paymentSummary,
   portionsTotal,
   round2,
   splitEqually,
+  withMethodChannel,
   type PaymentMethod,
   type PaymentPortion,
   type PaymentState,
@@ -57,23 +60,50 @@ const trAmount = (n: number) => String(round2(n)).replace(".", ",")
  * Kasadaki nakit tuşları — kahvecide en sık verilen banknotlar.
  *
  * EKLERLER, değiştirmezler: müşteri 200 + 50 uzattığında iki tuşa basmak 250
- * yazmalı. Eskiden son basılan tuş öncekini eziyordu (Hızlı Satış ekranı ise
- * baştan beri ekliyordu — aynı iş, iki farklı davranış). Etiketteki "+" bunu
+ * yazmalı. Eskiden son basılan tuş öncekini eziyordu. Etiketteki "+" bunu
  * görünür kılıyor; tam tutara dönmek için altındaki "Tam" düğmesi var.
  */
 const QUICK_CASH = [50, 100, 200, 500]
+
+/** Kısayol etiketi — tek yöntemli düğmeler ve veresiye ("CREDIT") için. */
+export type PaymentShortcuts = Partial<Record<PaymentMethod | "CREDIT", string>>
+
+function ShortcutHint({ label }: { label?: string }) {
+  if (!label) return null
+  return (
+    <kbd className="rounded border bg-muted px-1 font-mono text-[9px] font-normal text-muted-foreground">
+      {label}
+    </kbd>
+  )
+}
 
 export function PaymentPanel({
   total,
   state,
   onChange,
   accounts,
+  methods = PAYMENT_METHODS,
+  quickCash = QUICK_CASH,
+  shortcuts,
+  refund = false,
   className,
 }: {
   total: number
   state: PaymentState
   onChange: (patch: Partial<PaymentState>) => void
   accounts: RefAccount[]
+  /** Gösterilecek yöntemler. Hızlı Satış yemek kartını göstermez (kafeye özgü). */
+  methods?: PaymentMethod[]
+  /** Nakit tuşları; verilmezse kahvecinin banknotları. */
+  quickCash?: number[]
+  /** Düğmelerde gösterilecek klavye kısayolu (ör. CASH → "F8"). Tuşu ekran dinler. */
+  shortcuts?: PaymentShortcuts
+  /**
+   * İADE: para müşteriye ÖDENİR. Nakit kutusu/para üstü gizlenir (verilen para
+   * yok), "veresiye" müşterinin ALACAĞINA yazmaktır. Yön ödeme ucunda belgenin
+   * tipinden okunur; panel yalnız dili değiştirir.
+   */
+  refund?: boolean
   className?: string
 }) {
   const summary = paymentSummary(state, total)
@@ -81,6 +111,8 @@ export function PaymentPanel({
   const splitRemaining = round2(total - entered)
   /** Kasiyerin yazdığı nakit — hızlı tuşlar bunun ÜSTÜNE ekler. */
   const handedCash = parseAmount(state.tendered)
+  /** Yöntem seçilince hesap o yöntemin kanalına geçer (kart → POS) — bkz. withMethodChannel. */
+  const channels = useMemo(() => defaultPaymentAccounts(accounts), [accounts])
 
   const patchPortion = (id: string, patch: Partial<PaymentPortion>) =>
     onChange({ portions: state.portions.map((p) => (p.id === id ? { ...p, ...patch } : p)) })
@@ -125,7 +157,8 @@ export function PaymentPanel({
           )}
         >
           <Split className="h-4 w-4" />
-          Hesabı Böl{state.splitMode ? " • Açık" : ""}
+          {refund ? "Parçalı İade" : "Hesabı Böl"}
+          {state.splitMode ? " • Açık" : ""}
         </button>
       )}
 
@@ -152,7 +185,7 @@ export function PaymentPanel({
                   {index + 1}
                 </span>
                 <div className="flex flex-1 gap-1">
-                  {PAYMENT_METHODS.map((m) => {
+                  {methods.map((m) => {
                     const Icon = METHOD_ICONS[m]
                     const isActive = portion.method === m
                     return (
@@ -242,7 +275,7 @@ export function PaymentPanel({
         </div>
       ) : (
         <>
-          {state.method === "CASH" && (
+          {state.method === "CASH" && !refund && (
             <>
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">
@@ -280,7 +313,7 @@ export function PaymentPanel({
                 </p>
               )}
               <div className="grid grid-cols-4 gap-2">
-                {QUICK_CASH.map((n) => (
+                {quickCash.map((n) => (
                   <button
                     key={n}
                     type="button"
@@ -301,8 +334,14 @@ export function PaymentPanel({
             </>
           )}
 
-          <div className={cn("grid grid-cols-4 gap-2", state.method === "CASH" && "border-t pt-3")}>
-            {PAYMENT_METHODS.map((m) => {
+          <div
+            className={cn(
+              "grid gap-2",
+              methods.length === 3 ? "grid-cols-3" : "grid-cols-4",
+              state.method === "CASH" && !refund && "border-t pt-3"
+            )}
+          >
+            {methods.map((m) => {
               const Icon = METHOD_ICONS[m]
               const isActive = !state.isCredit && state.method === m
               return (
@@ -310,7 +349,12 @@ export function PaymentPanel({
                   key={m}
                   type="button"
                   onClick={() =>
-                    onChange({ method: m, isCredit: false, ...(m !== "CASH" ? { tendered: "" } : {}) })
+                    onChange(
+                      withMethodChannel(
+                        { method: m, isCredit: false, ...(m !== "CASH" ? { tendered: "" } : {}) },
+                        channels
+                      )
+                    )
                   }
                   className={cn(
                     "flex flex-col items-center gap-1 rounded-lg border p-3 text-[11px] font-semibold transition-colors",
@@ -321,6 +365,7 @@ export function PaymentPanel({
                 >
                   <Icon className="h-5 w-5" />
                   {PAYMENT_METHOD_LABELS[m]}
+                  <ShortcutHint label={shortcuts?.[m]} />
                 </button>
               )
             })}
@@ -353,7 +398,12 @@ export function PaymentPanel({
             : "border-border text-muted-foreground hover:bg-muted"
         )}
       >
-        Veresiye / Açık Hesap {state.isCredit ? "• Açık" : ""}
+        {refund ? "Cariye Alacak Yaz" : "Veresiye / Açık Hesap"} {state.isCredit ? "• Açık" : ""}
+        {shortcuts?.CREDIT && (
+          <span className="ml-2">
+            <ShortcutHint label={shortcuts.CREDIT} />
+          </span>
+        )}
       </button>
 
       {!state.isCredit && !state.splitMode && accounts.length > 0 && (
@@ -375,7 +425,9 @@ export function PaymentPanel({
       )}
       {!state.isCredit && state.splitMode && (
         <p className="px-1 text-xs text-muted-foreground">
-          Nakit kasaya, kart/yemek kartı/havale bankaya işlenir. Kalan tutar açık hesap kalır.
+          {refund
+            ? "Nakit kasadan, kart/havale bankadan çıkar. Kalan tutar müşterinin alacağına yazılır."
+            : `Nakit kasaya, ${methods.includes("MEAL_CARD") ? "kart/yemek kartı/havale" : "kart/havale"} bankaya işlenir. Kalan tutar açık hesap kalır.`}
         </p>
       )}
     </div>

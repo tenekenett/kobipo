@@ -11,6 +11,7 @@ import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { revalidateDashboard } from "@/lib/dashboard/cache"
 import { receiptCancelVerdict } from "@/lib/okc/receipt-okc"
 import { findCoveringZNo } from "@/lib/okc/z-mutabakat-query"
+import { isPurchaseReturn } from "@/lib/cari/invoice-direction"
 
 export const dynamic = "force-dynamic"
 
@@ -58,6 +59,7 @@ export const POST = withApiErrors(async function POST(
         invoiceNo: true,
         status: true,
         type: true,
+        returnKind: true,
         date: true,
         okcDeviceId: true,
         okcReceiptNo: true,
@@ -150,12 +152,15 @@ export const POST = withApiErrors(async function POST(
         createdBy: user.id,
       })
 
-      // Kasa etkisini geri al: ödeme anında satışta +tutar, alışta -tutar yazılmıştı.
-      // Bakiye BİR KEZ düzeltilir — ödemeyle hareketi aynı anda yazan uç da tek
-      // kez artırmıştı, hareketin silinmesi ayrıca bakiye düşürmez.
+      // Kasa etkisini geri al: ödeme anında satışta +tutar, alışta ve SATIŞ
+      // İADESİNDE -tutar yazılmıştı (para yönü kuralı ödeme ucuyla aynı:
+      // lib/finans/create-invoice-payment.ts). Bakiye BİR KEZ düzeltilir —
+      // ödemeyle hareketi aynı anda yazan uç da tek kez artırmıştı, hareketin
+      // silinmesi ayrıca bakiye düşürmez.
+      const wasInflow = receipt.type === "SALES" || isPurchaseReturn(receipt)
       for (const p of receipt.payments) {
         if (!p.accountId) continue
-        const delta = receipt.type === "SALES" ? -Number(p.amount) : Number(p.amount)
+        const delta = wasInflow ? -Number(p.amount) : Number(p.amount)
         await tx.financialAccount.update({
           where: { id: p.accountId },
           data: { balance: { increment: new Prisma.Decimal(delta) } },

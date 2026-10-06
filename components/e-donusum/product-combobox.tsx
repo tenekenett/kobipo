@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useAnchoredMenu } from "@/components/ui/use-anchored-menu"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { trFold } from "@/lib/text/tr-fold"
+import { cn } from "@/lib/utils"
+import { parseScanMultiplier } from "@/lib/satis/scan-multiplier"
 import { useCanCallApi } from "@/components/dashboard/write-guard"
 import { Loader2, Plus, X } from "lucide-react"
 
@@ -57,7 +59,8 @@ type ProductComboboxProps = {
    * Satış faturası bağlamında "sale" (default), alış faturasında "purchase".
    */
   priceContext?: "sale" | "purchase"
-  onSelect: (product: ComboboxProduct) => void
+  /** `quantity`: barkod tezgâhında "3*barkod" ile girilen miktar (yalnız scanMode). */
+  onSelect: (product: ComboboxProduct, opts?: { quantity?: number }) => void
   onClearBinding?: () => void
   disabled?: boolean
   /**
@@ -69,7 +72,25 @@ type ProductComboboxProps = {
   categoryOptions?: string[]
   /** Verilirse, yeni ürün dialog'unda başlangıç stoğunun gireceği depo seçilebilir. */
   warehouses?: { id: string; name: string; isDefault?: boolean }[]
+  /**
+   * Barkod tezgâhı (Hızlı Satış): seçimden sonra odak kutuda KALIR — okuyucu
+   * ikinci ürünü okuttuğunda kutuya yeniden tıklamak gerekmesin. Odaklanınca
+   * liste açılmaz (ekran kutuyu kendisi odaklar, sepeti örtmesin); yazınca ya da
+   * kutuya tıklayınca açılır.
+   */
+  scanMode?: boolean
+  /** Dışarıdan odaklamak / listeyi kapatmak için (ör. satış bitince kutuya dönmek). */
+  handleRef?: React.Ref<ProductComboboxHandle>
+  placeholder?: string
+  inputClassName?: string
 }
+
+/**
+ * `close`: açık sonuç listesini kapatır. Liste body'ye z-60 ile basılır, yani
+ * ekranda bir pencere (z-50) açılınca onun ÜSTÜNDE kalır — pencereyi açan ekran
+ * önce listeyi kapatır.
+ */
+export type ProductComboboxHandle = { focus: () => void; close: () => void }
 
 const MAX_RESULTS = 50
 
@@ -114,6 +135,10 @@ export function ProductCombobox({
   createButtonLabel,
   categoryOptions,
   warehouses,
+  scanMode = false,
+  handleRef,
+  placeholder = "Ürün ara veya yeni ad yazın",
+  inputClassName,
 }: ProductComboboxProps) {
   const { toast } = useToast()
   const listId = useId()
@@ -195,6 +220,12 @@ export function ProductCombobox({
 
   const closedDisplay = selected?.name ?? selectedLabel ?? ""
 
+  // Aranan metin: tezgâhta "3*" çarpanı ayıklanmış hâli (bkz. parseScanMultiplier).
+  const { quantity: multiplier, term } = useMemo(
+    () => (scanMode ? parseScanMultiplier(query) : { quantity: null, term: query }),
+    [scanMode, query]
+  )
+
   /**
    * Sorgunun BARKODU birebir tutan ürünü. Okuyucu akışının çekirdeği: barkod
    * okutulup Enter'a basıldığında bu ürün doğrudan seçilir, listede gezinmek
@@ -202,13 +233,13 @@ export function ProductCombobox({
    * başka bir ürünün barkodunun içinde geçebilir.
    */
   const barcodeHit = useMemo(() => {
-    const q = normalizeForSearch(query)
+    const q = normalizeForSearch(term)
     if (!q) return undefined
     return products.find((p) => p.barcode && normalizeForSearch(String(p.barcode)) === q)
-  }, [products, query])
+  }, [products, term])
 
   const filtered = useMemo(() => {
-    const q = normalizeForSearch(query)
+    const q = normalizeForSearch(term)
     if (!q) return products.slice(0, MAX_RESULTS)
     const list = products.filter(
       (p) =>
@@ -222,13 +253,13 @@ export function ProductCombobox({
       return [barcodeHit, ...rest].slice(0, MAX_RESULTS)
     }
     return list.slice(0, MAX_RESULTS)
-  }, [products, query, barcodeHit])
+  }, [products, term, barcodeHit])
 
   const exactMatch = useMemo(() => {
-    const n = normalizeName(query)
+    const n = normalizeName(term)
     if (!n) return false
     return products.some((p) => normalizeName(p.name) === n)
-  }, [products, query])
+  }, [products, term])
 
   // Ürün kartı açmak Ürün/Hizmet Listesi'nin ucudur (bkz. PAGE_API_RULES `/api/stok`);
   // belge editörünün yetkisi yetmez. Seçenek yetkisiz kullanıcıya hiç çıkmaz — eskiden
@@ -236,7 +267,7 @@ export function ProductCombobox({
   const mayCreateProduct = useCanCallApi("/api/stok/products", "POST")
   // Barkodu kayıtlı bir ürünle birebir tutuyorsa ürün ZATEN VARDIR: "yeni ürün"
   // seçeneği gösterilmez, Enter da diyaloğu açmaz.
-  const canCreate = mayCreateProduct && query.trim().length > 0 && !exactMatch && !barcodeHit
+  const canCreate = mayCreateProduct && term.trim().length > 0 && !exactMatch && !barcodeHit
 
   const close = useCallback(() => {
     setOpen(false)
@@ -265,13 +296,15 @@ export function ProductCombobox({
     setHighlighted(-1)
   }, [query, open])
 
+  useImperativeHandle(handleRef, () => ({ focus: () => inputRef.current?.focus(), close }), [close])
+
   const pick = useCallback(
     (p: ComboboxProduct) => {
-      onSelect(p)
+      onSelect(p, multiplier ? { quantity: multiplier } : undefined)
       close()
-      inputRef.current?.blur()
+      if (!scanMode) inputRef.current?.blur()
     },
-    [onSelect, close]
+    [onSelect, close, scanMode, multiplier]
   )
 
   // Eski davranış (inline create) yerine popup açıyoruz. Kullanıcı popup'ta
@@ -324,15 +357,15 @@ export function ProductCombobox({
   )
 
   const openCreateDialog = useCallback(() => {
-    const name = query.trim()
+    const name = term.trim()
     if (!name || exactMatch) return
     seedAndOpenDialog(name)
-  }, [query, exactMatch, seedAndOpenDialog])
+  }, [term, exactMatch, seedAndOpenDialog])
 
   // Görünür "+ Yeni Ürün" butonu: boş sorguda da açılır (ad dialog'da girilir).
   const openCreateDialogManual = useCallback(() => {
-    seedAndOpenDialog(query.trim())
-  }, [query, seedAndOpenDialog])
+    seedAndOpenDialog(term.trim())
+  }, [term, seedAndOpenDialog])
 
   const submitCreateDialog = useCallback(async () => {
     const name = draftProduct.name.trim()
@@ -499,7 +532,7 @@ export function ProductCombobox({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => openCreateDialog()}
               >
-                {creating ? "Kaydediliyor…" : `+ "${query.trim()}" adıyla yeni ürün ekle`}
+                {creating ? "Kaydediliyor…" : `+ "${term.trim()}" adıyla yeni ürün ekle`}
               </button>
             ) : null}
           </div>,
@@ -517,19 +550,33 @@ export function ProductCombobox({
           aria-controls={open ? listId : undefined}
           aria-autocomplete="list"
           disabled={disabled}
-          className="min-w-0 flex-1"
-          placeholder="Ürün ara veya yeni ad yazın"
+          className={cn("min-w-0 flex-1", inputClassName)}
+          placeholder={placeholder}
           value={inputValue}
           onChange={(e) => {
             setQuery(e.target.value)
             if (!open) setOpen(true)
           }}
           onFocus={() => {
+            if (scanMode) return
             setOpen(true)
             setQuery(selected?.name ?? selectedLabel ?? "")
           }}
+          onClick={() => {
+            if (!scanMode || open) return
+            setOpen(true)
+            setQuery(closedDisplay)
+          }}
           onKeyDown={onKeyDown}
         />
+        {scanMode && multiplier ? (
+          <span
+            className="flex shrink-0 items-center rounded-md bg-kobipo-blue px-2 text-sm font-bold tabular-nums text-white dark:bg-primary dark:text-primary-foreground"
+            title="Okutulan ürün bu miktarla eklenir"
+          >
+            × {multiplier.toLocaleString("tr-TR")}
+          </span>
+        ) : null}
         {selectedProductId && onClearBinding ? (
           <Button
             type="button"

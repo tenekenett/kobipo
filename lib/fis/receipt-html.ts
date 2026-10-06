@@ -62,6 +62,11 @@ export type ReceiptData = {
   reference?: string | null
   /** İskonto satırı (varsa) — hesap fişinde ve fişte aynı görünsün. */
   discount?: { label: string; amount: number } | null
+  /**
+   * SATIŞ İADE FİŞİ (Hızlı Satış "İade modu"). Ödeme satırları müşteriye
+   * ÖDENENİ gösterir; "veresiye" burada müşterinin alacağına yazılan tutardır.
+   */
+  isReturn?: boolean
 }
 
 /** Şablonda alt not boşken satış fişinde basılan varsayılan kapanış. */
@@ -95,17 +100,19 @@ export function buildReceiptHtml(
   template: ReceiptTemplate = DEFAULT_RECEIPT_TEMPLATE,
 ): string {
   const isSales = r.direction === "outgoing"
-  const docTitle = r.prebill ? "Hesap Fişi" : isSales ? "Satış Fişi" : "Alış Fişi"
-  const docHeader = r.prebill ? "HESAP FİŞİ" : isSales ? "SATIŞ FİŞİ" : "ALIŞ FİŞİ"
+  const isReturn = isSales && r.isReturn === true
+  const docTitle = r.prebill ? "Hesap Fişi" : isReturn ? "İade Fişi" : isSales ? "Satış Fişi" : "Alış Fişi"
+  const docHeader = r.prebill ? "HESAP FİŞİ" : isReturn ? "İADE FİŞİ" : isSales ? "SATIŞ FİŞİ" : "ALIŞ FİŞİ"
   const counterpartyLabel = isSales ? "Müşteri" : "Tedarikçi"
   const counterpartyFallback = isSales ? "Perakende" : "Serbest"
-  const creditLabel = isSales ? "Veresiye / Açık Hesap" : "Açık Hesap"
+  const creditLabel = isReturn ? "Cariye alacak" : isSales ? "Veresiye / Açık Hesap" : "Açık Hesap"
+  const paidLabel = isReturn ? "İade edilen" : "Ödenen"
 
   // Üst başlık: şablonda yazılmışsa o, yoksa firma adı (eski davranış).
   const headerTitle = template.headerText || r.companyName || docTitle
   // Alt not: şablonda yazılmışsa o; şablon boşken satışta eski teşekkür satırı,
   // alışta hiç alt not yoktu — bu ayrım korunur.
-  const footerText = template.footerText || (isSales ? DEFAULT_SALES_FOOTER : "")
+  const footerText = template.footerText || (isSales && !isReturn ? DEFAULT_SALES_FOOTER : "")
 
   const dateStr = new Date(r.date).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })
   const qtyFmt = (n: number) => n.toLocaleString("tr-TR", { maximumFractionDigits: 3 })
@@ -152,7 +159,7 @@ export function buildReceiptHtml(
           .map((p) => `<div class="row"><span>${escapeHtml(p.label)}</span><span>${currency(p.amount)}</span></div>`)
           .join("") + changeRow
       : `<div class="row"><span>Ödeme</span><span>${escapeHtml(r.paymentLabel)}</span></div>
-       <div class="row"><span>Ödenen</span><span>${currency(r.tendered)}</span></div>
+       <div class="row"><span>${paidLabel}</span><span>${currency(r.tendered)}</span></div>
        ${changeRow}`
 
   return `<!doctype html>

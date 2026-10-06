@@ -11,6 +11,8 @@ import { ExportOnlyScreen } from "@/components/dashboard/write-guard"
 type FisDetail = {
   receiptNo: string
   direction: "outgoing" | "incoming"
+  /** Satış iade fişi (Hızlı Satış "İade modu"). */
+  isReturn?: boolean
   status: string
   date: string
   companyName: string
@@ -95,7 +97,7 @@ export default function FisYazdirPage() {
   }
 
   const isSales = fis.direction === "outgoing"
-  const docTitle = isSales ? "SATIŞ FİŞİ" : "ALIŞ FİŞİ"
+  const docTitle = fis.isReturn ? "İADE FİŞİ" : isSales ? "SATIŞ FİŞİ" : "ALIŞ FİŞİ"
   const cariLabel = isSales ? "Müşteri" : "Tedarikçi"
   const cariName = fis.counterpartyName ?? (isSales ? "Perakende" : "Serbest")
   const kalan = fis.totalAmount - fis.paidAmount
@@ -231,7 +233,7 @@ export default function FisYazdirPage() {
               fis.payments.length === 0 && (
                 <div className="flex justify-between text-gray-700">
                   <span>Ödeme</span>
-                  <span>{isSales ? "Veresiye / Açık Hesap" : "Açık Hesap"}</span>
+                  <span>{fis.isReturn ? "Cariye alacak" : isSales ? "Veresiye / Açık Hesap" : "Açık Hesap"}</span>
                 </div>
               )
             )}

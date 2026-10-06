@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"  
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { buildReceiptHtml, currency, type ReceiptData } from "@/lib/fis/receipt-html"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,8 +31,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { QuantityStepper } from "@/components/ui/quantity-stepper"
-import { ProductCombobox, type ComboboxProduct } from "@/components/e-donusum/product-combobox"
+import {
+  ProductCombobox,
+  type ComboboxProduct,
+  type ProductComboboxHandle,
+} from "@/components/e-donusum/product-combobox"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
+import { PaymentPanel, type PaymentShortcuts } from "@/components/satis/payment-panel"
+import { FullscreenButton, Kbd, RecentDocBar, anyDialogOpen, type RecentDoc } from "@/components/satis/counter-ui"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import {
   useProducts,
@@ -43,18 +49,27 @@ import {
   useReceiptTemplate,
 } from "@/lib/swr/use-company-data"
 import { cn } from "@/lib/utils"
-import { parseAmount } from "@/lib/satis/payment"
-import { defaultedAccountNote, withAccountNote, type PaymentAccountResult } from "@/lib/finans/hesapsiz-odeme"
+import {
+  defaultPaymentAccounts,
+  emptyPaymentState,
+  parseAmount,
+  paymentLabelOf,
+  paymentSummary,
+  portionsTotal,
+  receiptParts,
+  withMethodChannel,
+  type PaymentMethod,
+  type PaymentState,
+} from "@/lib/satis/payment"
+import { submitReceiptSale } from "@/lib/satis/submit-receipt-sale"
+import { withAccountNote } from "@/lib/finans/hesapsiz-odeme"
 import { formatMoney } from "@/lib/format"
 import { useTryPrice } from "@/lib/exchange/use-try-price"
 import {
-  Banknote,
   Check,
   CheckCircle2,
   Clock,
-  CreditCard,
   FileText,
-  Landmark,
   Loader2,
   Package,
   PackagePlus,
@@ -63,7 +78,6 @@ import {
   Receipt,
   Search,
   Share2,
-  Split,
   Trash2,
 } from "lucide-react"
 
@@ -79,13 +93,18 @@ type CartLine = {
 
 type QuickProduct = ComboboxProduct & { category?: string | null }
 
-type PaymentMethod = "CASH" | "CREDIT_CARD" | "BANK_TRANSFER"
+// Ödeme kutusu ve fiş + ödeme akışı Hızlı Satış / Kahveci ile ORTAK
+// (components/satis/payment-panel.tsx + lib/satis/submit-receipt-sale.ts).
+// Eskiden bu ekranın kendi kopyası vardı ve Hızlı Satış'a giren düzeltmeleri
+// almamıştı (çift alış kilidi, tedarikçisiz açık hesap uyarısı, kart → POS
+// hesabı) — 2026-10-06.
+const QUICK_PURCHASE_METHODS: PaymentMethod[] = ["CASH", "CREDIT_CARD", "BANK_TRANSFER"]
+const QUICK_CASH = [20, 50, 100, 200]
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string; icon: typeof Banknote }[] = [
-  { value: "CASH", label: "Nakit", icon: Banknote },
-  { value: "CREDIT_CARD", label: "Kredi Kartı", icon: CreditCard },
-  { value: "BANK_TRANSFER", label: "Havale/EFT", icon: Landmark },
-]
+// Tek tuşla ödeme: yöntemi seçer VE alışı tamamlar (F2 seçili yöntemle tamamlar).
+type QuickPay = "CASH" | "CREDIT_CARD" | "CREDIT"
+const PAY_KEYS: Record<string, QuickPay> = { F8: "CASH", F9: "CREDIT_CARD", F10: "CREDIT" }
+const PAY_SHORTCUTS: PaymentShortcuts = { CASH: "F8", CREDIT_CARD: "F9", CREDIT: "F10" }
 
 // Aynı anda açık tutulabilen park edilmiş alış (tedarikçi) sayısı.
 const NUM_TICKETS = 5
@@ -113,10 +132,11 @@ const PRICE_TABS: { key: PriceTab; label: string }[] = [
   { key: "sales", label: "Önceki Satışlar" },
 ]
 
-// note: alış anında girilen kısa fiş notu (fişe basılır). Ticket'ta tutulur ki
-// park edilen alışlar arasında geçiş yapınca kaybolmasın.
-type Ticket = { cart: CartLine[]; supplierId?: string; tendered: string; note: string }
-const emptyTicket = (): Ticket => ({ cart: [], supplierId: undefined, tendered: "", note: "" })
+// note: alış anında girilen kısa fiş notu (fişe basılır). Not ve ödeme Ticket'ta
+// tutulur ki park edilen alışlar arasında geçiş yapınca kaybolmasın.
+// `payment.accountId` boşsa firmanın varsayılan kasası kullanılır (bkz. `payment`).
+type Ticket = { cart: CartLine[]; supplierId?: string; note: string; payment: PaymentState }
+const emptyTicket = (): Ticket => ({ cart: [], supplierId: undefined, note: "", payment: emptyPaymentState() })
 
 /** type="number" input'larda 0 değerini boş göster — baştaki "0" takılmasın. */
 const numInput = (n: number) => (n === 0 ? "" : String(n))
@@ -197,29 +217,34 @@ export function QuickPurchaseScreen() {
   const [activeTicket, setActiveTicket] = useState(0)
   const active = tickets[activeTicket]
 
-  const [isCredit, setIsCredit] = useState(false) // Açık Hesap (sonra öde)
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH")
-  const [accountId, setAccountId] = useState<string>("")
   const [activeCat, setActiveCat] = useState<string>(ALL_CATEGORIES)
   const [miscAmount, setMiscAmount] = useState("")
 
   const [isSubmitting, setIsSubmitting] = useState(false)
+  /**
+   * Çift alış kilidi (Hızlı Satış/Kahveci ile aynı kural). `isSubmitting` state'i
+   * tek başına yetmiyor: F2 basılı tutulunca ya da çift tıklamada iki çağrı aynı
+   * render'da geçebilir — iki fiş, iki stok girişi, iki ödeme olurdu.
+   */
+  const submitLock = useRef(false)
+  /**
+   * Eksik ödeme onayı: tedarikçi seçilmeden açık hesap ya da eksik parçalı ödeme
+   * yapılırsa kalan borç KİMSEYE yazılmaz. Sessiz geçilmez, sorulur.
+   */
+  const [shortPayWarn, setShortPayWarn] = useState<number | null>(null)
+  const shortPayAcked = useRef(false)
+  /** Barkod kutusu — her eklemeden ve alıştan sonra odak buraya döner. */
+  const scanRef = useRef<ProductComboboxHandle>(null)
   const [lastPurchase, setLastPurchase] = useState<
     { id: string; invoiceNo?: string | null; receipt: ReceiptData } | null
   >(null)
+  /** Son işlem satırı — pencere kapandıktan sonra da durur (yeniden yazdırma için). */
+  const [recent, setRecent] = useState<(RecentDoc & { receipt: ReceiptData }) | null>(null)
   // Tutar sütununda düzenlenen satır (yazarken alanın kullanıcıyla çakışmasını önler).
   const [totalEdit, setTotalEdit] = useState<{ key: string; value: string } | null>(null)
   // Fiyat sütununda düzenlenen satır — birim fiyat 6 ondalık olabildiğinden (Tutar'dan
   // geri hesaplanınca) alan odak dışıyken 2 ondalıkla gösterilir, yazarken ham girişi korur.
   const [priceEdit, setPriceEdit] = useState<{ key: string; value: string } | null>(null)
-
-  // Parçalı ödeme: yöntem başına tutar.
-  const [splitMode, setSplitMode] = useState(false)
-  const [split, setSplit] = useState<Record<PaymentMethod, string>>({
-    CASH: "",
-    CREDIT_CARD: "",
-    BANK_TRANSFER: "",
-  })
 
   // Önceki fiyatlar (geçmiş) modalı.
   const [priceModalLine, setPriceModalLine] = useState<CartLine | null>(null)
@@ -238,15 +263,37 @@ export function QuickPurchaseScreen() {
   // yalnız alan BOŞKEN çalışıyor: sıfırlamazsak panelde firma değiştirildiğinde
   // eski firmanın depo id'si state'te kalır ve satış onun deposuna yazılırdı
   // (sunucu da artık reddedip varsayılana düşüyor, bkz. resolveCompanyWarehouseId).
+  // Bekleyen alışlar da sıfırlanır: sepet eski firmanın ürünlerini, ödeme eski
+  // firmanın kasa/banka hesabını taşır.
   useEffect(() => {
     setWarehouseId("")
+    setTickets(Array.from({ length: NUM_TICKETS }, emptyTicket))
+    setActiveTicket(0)
+    setRecent(null)
   }, [companyId])
 
+  // Ödeme kanalları — kural Hızlı Satış ve Kahveci ile ortak.
+  const channelIds = useMemo(() => defaultPaymentAccounts(accounts), [accounts])
+  const defaultAccountId = channelIds.cashAccountId ?? accounts[0]?.id ?? ""
+  // Aktif alışın ödemesi; hesap seçilmemişse varsayılan kasa.
+  const payment = useMemo<PaymentState>(
+    () => ({ ...active.payment, accountId: active.payment.accountId || defaultAccountId }),
+    [active.payment, defaultAccountId]
+  )
+
+  /** Barkod kutusuna dön. Telefonda klavyeyi kendiliğinden açmasın diye yalnız fareli ekranda. */
+  const focusScan = useCallback(() => {
+    if (typeof window === "undefined" || !window.matchMedia("(pointer: fine)").matches) return
+    scanRef.current?.focus()
+  }, [])
   useEffect(() => {
-    if (accountId || accounts.length === 0) return
-    const firstCash = accounts.find((a) => a.type === "CASH") ?? accounts[0]
-    if (firstCash) setAccountId(firstCash.id)
-  }, [accounts, accountId])
+    focusScan()
+  }, [companyId, focusScan])
+  // Bir pencere açılınca barkod listesi kapanır (liste pencerenin ÜSTÜNDE kalıyordu).
+  const anyScreenDialog = lastPurchase !== null || shortPayWarn !== null || priceModalLine !== null
+  useEffect(() => {
+    if (anyScreenDialog) scanRef.current?.close()
+  }, [anyScreenDialog])
 
   // Aktif park (ticket) üzerinde çalışan yardımcılar.
   const patchTicket = useCallback(
@@ -258,6 +305,14 @@ export function QuickPurchaseScreen() {
   const patchCart = useCallback(
     (updater: (cart: CartLine[]) => CartLine[]) => {
       setTickets((prev) => prev.map((t, i) => (i === activeTicket ? { ...t, cart: updater(t.cart) } : t)))
+    },
+    [activeTicket]
+  )
+  const patchPayment = useCallback(
+    (patch: Partial<PaymentState>) => {
+      setTickets((prev) =>
+        prev.map((t, i) => (i === activeTicket ? { ...t, payment: { ...t.payment, ...patch } } : t))
+      )
     },
     [activeTicket]
   )
@@ -273,7 +328,9 @@ export function QuickPurchaseScreen() {
   )
 
   const addProductToCart = useCallback(
-    (product: ComboboxProduct) => {
+    (product: ComboboxProduct, opts?: { quantity?: number }) => {
+      // "3*barkod" ile gelen miktar; yoksa 1.
+      const qty = opts?.quantity && opts.quantity > 0 ? opts.quantity : 1
       // Alış = stok girişi: depoyu değiştirme, kullanıcının seçtiği (varsayılan Ana) depo kalsın.
       // Fiyat (ve çeviri uyarısı) yalnız satır İLK kez eklenirken hesaplanır.
       const inCart = !!product.id && active.cart.some((l) => l.productId === product.id)
@@ -283,7 +340,7 @@ export function QuickPurchaseScreen() {
           const idx = cart.findIndex((l) => l.productId === product.id)
           if (idx >= 0) {
             const next = [...cart]
-            next[idx] = { ...next[idx], quantity: next[idx].quantity + 1 }
+            next[idx] = { ...next[idx], quantity: next[idx].quantity + qty }
             return next
           }
         }
@@ -294,7 +351,7 @@ export function QuickPurchaseScreen() {
             productId: product.id || null,
             description: product.name,
             unit: product.unit || "ADET",
-            quantity: 1,
+            quantity: qty,
             unitPrice,
             vatRate: Number(product.vatRate) || 0,
           },
@@ -337,40 +394,16 @@ export function QuickPurchaseScreen() {
   )
 
   const totals = useMemo(() => cartTotals(active.cart), [active.cart])
-  const tenderedNum = useMemo(() => parseAmount(active.tendered), [active.tendered])
-  const change = tenderedNum > 0 ? Math.max(0, round2(tenderedNum - totals.total)) : 0
-
-  // Parçalı ödeme türetilmişleri. Tutar çözümleyici ORTAK (lib/satis/payment):
-  // yerel kopyası binlik ayracını yanlış okuyordu — "1.500" → 1,5.
-  const splitPaid = useMemo(
-    () => round2(parseAmount(split.CASH) + parseAmount(split.CREDIT_CARD) + parseAmount(split.BANK_TRANSFER)),
-    [split]
-  )
-  const splitRemaining = round2(totals.total - splitPaid)
-  const paidDisplay = splitMode ? splitPaid : tenderedNum
-  const changeDisplay = splitMode ? Math.max(0, round2(splitPaid - totals.total)) : change
-
-  // Ödeme parçalarını doğru hesaba yönlendir: nakit → kasa, kart → POS kanalı
-  // (yoksa banka), havale → banka.
-  const cashAccountId = useMemo(() => accounts.find((a) => a.type === "CASH")?.id, [accounts])
-  const cardAccountId = useMemo(
-    () => accounts.find((a) => a.type === "CREDIT_CARD" || a.type === "POS")?.id,
-    [accounts],
-  )
-  const bankAccountId = useMemo(
-    () => accounts.find((a) => a.type === "BANK")?.id ?? accounts.find((a) => a.type !== "CASH")?.id,
-    [accounts],
-  )
-
-  // Kalan tutarı nakit alanına ekle (Tam benzeri kısayol).
-  const fillSplitRemainder = () => {
-    setSplit((s) => {
-      const paid = parseAmount(s.CASH) + parseAmount(s.CREDIT_CARD) + parseAmount(s.BANK_TRANSFER)
-      const rem = round2(totals.total - paid)
-      if (rem <= 0) return s
-      return { ...s, CASH: String(round2(parseAmount(s.CASH) + rem)) }
-    })
-  }
+  const summary = paymentSummary(payment, totals.total)
+  // "Ödenen" kutusu: nakitte tedarikçiye verilen, parçalıda girilen toplam, kart/
+  // havalede tutarın tamamı, açık hesapta 0.
+  const paidDisplay = payment.isCredit
+    ? 0
+    : payment.splitMode
+      ? portionsTotal(payment.portions)
+      : payment.method === "CASH"
+        ? parseAmount(payment.tendered)
+        : round2(totals.total)
 
   // Önceki fiyatlar (geçmiş) modalını aç ve ürünün fiyat geçmişini çek.
   const openPriceHistory = useCallback(
@@ -409,227 +442,223 @@ export function QuickPurchaseScreen() {
     return list.slice(0, 60)
   }, [products, activeCat])
 
-  const setTendered = (v: string) => patchTicket({ tendered: v })
-  const addCash = (n: number) => patchTicket({ tendered: String(Math.max(0, round2(tenderedNum + n))) })
-
   const resetPurchase = useCallback(() => {
     setTickets((prev) => prev.map((t, i) => (i === activeTicket ? emptyTicket() : t)))
-    setIsCredit(false)
-    setPaymentMethod("CASH")
-    setSplit({ CASH: "", CREDIT_CARD: "", BANK_TRANSFER: "" })
+    // Onay bu alışa aitti — sonrakinde yeniden sorulur.
+    shortPayAcked.current = false
   }, [activeTicket])
 
-  const handleComplete = useCallback(async () => {
-    if (!companyId) {
-      toast({ title: "Hata", description: "Firma seçili değil", variant: "destructive" })
-      return
-    }
-    const tk = tickets[activeTicket]
-    const cart = tk.cart
-    if (cart.length === 0) {
-      toast({ title: "Sepet boş", description: "En az bir ürün ekleyin", variant: "destructive" })
-      return
-    }
-    if (cart.some((l) => l.quantity <= 0)) {
-      toast({ title: "Geçersiz miktar", description: "Tüm satırlarda miktar 0'dan büyük olmalı", variant: "destructive" })
-      return
-    }
-    const t = cartTotals(cart)
+  /**
+   * Alışı tamamlar. `override` tek tuşla ödemeden gelir (F8/F9/F10): state
+   * güncellemesi bu çağrıda henüz görünmediği için seçilen yöntem buradan
+   * birleştirilir.
+   */
+  const handleComplete = useCallback(
+    async (override?: Partial<PaymentState>) => {
+      if (!companyId) {
+        toast({ title: "Hata", description: "Firma seçili değil", variant: "destructive" })
+        return
+      }
+      if (submitLock.current) return
+      const tk = tickets[activeTicket]
+      const cart = tk.cart
+      if (cart.length === 0) {
+        toast({ title: "Sepet boş", description: "En az bir ürün ekleyin", variant: "destructive" })
+        return
+      }
+      if (cart.some((l) => l.quantity <= 0)) {
+        toast({ title: "Geçersiz miktar", description: "Tüm satırlarda miktar 0'dan büyük olmalı", variant: "destructive" })
+        return
+      }
+      const t = cartTotals(cart)
+      const pay: PaymentState = override ? { ...payment, ...override } : payment
 
-    setIsSubmitting(true)
-    try {
-      // Hızlı alış artık FİŞ keser (resmî fatura değil). Stok girişi + ödeme anında
-      // işler; fiş "Fişler" listesinden toplu faturaya dönüştürülebilir.
-      const invoiceRes = await fetch("/api/e-donusum/invoices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // Ödenmeden kalan tutar (açık hesap ya da eksik parçalı ödeme) tedarikçi
+      // yoksa kimseye borç yazılmaz — önce sorulur.
+      const pending = paymentSummary(pay, t.total)
+      if (pending.remaining > 0.005 && !tk.supplierId && !shortPayAcked.current) {
+        setShortPayWarn(pending.remaining)
+        return
+      }
+
+      submitLock.current = true
+      setIsSubmitting(true)
+      try {
+        // Hızlı alış FİŞ keser (resmî fatura değil). Stok girişi + ödeme anında
+        // işler; fiş "Fişler" listesinden toplu faturaya dönüştürülebilir. Ödeme
+        // tutarı faturanın SUNUCUDA kayıtlı toplamından hesaplanır (ortak akış).
+        const result = await submitReceiptSale({
           companyId,
-          type: "PURCHASE",
-          invoiceType: "MANUAL",
-          isReceipt: true,
-          supplierId: tk.supplierId || null,
-          warehouseId: warehouseId || undefined,
-          date: new Date().toISOString(),
-          currency: "TRY",
-          notes: tk.note.trim() || undefined,
+          direction: "purchase",
           items: cart.map((l) => ({
-            productId: l.productId || undefined,
+            productId: l.productId,
             description: l.description,
             unit: l.unit,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
             vatRate: l.vatRate,
           })),
-        }),
-      })
-
-      const invoice = await invoiceRes.json().catch(() => ({}))
-      if (!invoiceRes.ok) throw new Error(invoice?.error || "Alış fişi oluşturulamadı")
-
-      // Fiş kesildi ama stok yazılamadıysa sunucu uyarı döner (alış bloklanmaz).
-      if (invoice?.stockWarning) {
-        toast({
-          title: "Stok güncellenemedi",
-          description: String(invoice.stockWarning),
-          variant: "destructive",
+          payment: pay,
+          accounts,
+          supplierId: tk.supplierId,
+          warehouseId,
+          notes: tk.note,
+          fallbackTotal: t.total,
         })
-      }
 
-      // Ödeme tutarı, faturanın SUNUCUDA kayıtlı toplamı olmalı: frontend'in
-      // yuvarlanmamış t.total'i (ör. birim fiyat geri-hesabından gelen küsurat)
-      // sunucunun 2 haneye yuvarladığı totalAmount'ı aşıp ödemeyi reddettirebilir.
-      const invoiceTotal = invoice?.totalAmount != null ? Number(invoice.totalAmount) : round2(t.total)
-
-      // Ödeme parçaları: parçalı modda yöntem başına; değilse tek yöntem tüm tutar.
-      // Toplam ödeme faturanın totalAmount'ını aşmasın (nakit fazlası para üstü olur).
-      const paymentParts: { method: PaymentMethod; amount: number; accountId?: string }[] = []
-      const paymentResults: (PaymentAccountResult | null)[] = []
-      if (!isCredit && invoiceTotal > 0) {
-        if (splitMode) {
-          let remaining = invoiceTotal
-          // Kart/Havale önce, nakit en sona → nakit fazlası para üstü olarak yutulur.
-          for (const m of ["CREDIT_CARD", "BANK_TRANSFER", "CASH"] as PaymentMethod[]) {
-            const want = round2(parseAmount(split[m]))
-            if (want <= 0) continue
-            const pay = Math.min(want, round2(remaining))
-            if (pay <= 0) continue
-            const acc =
-              (m === "CASH"
-                ? cashAccountId
-                : m === "CREDIT_CARD"
-                  ? (cardAccountId ?? bankAccountId)
-                  : bankAccountId) ?? accountId
-            paymentParts.push({ method: m, amount: pay, accountId: acc || undefined })
-            remaining = round2(remaining - pay)
-          }
-        } else {
-          paymentParts.push({ method: paymentMethod, amount: invoiceTotal, accountId: accountId || undefined })
-        }
-
-        for (const part of paymentParts) {
-          const payRes = await fetch("/api/faturalar/odemeler", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              invoiceId: invoice.id,
-              companyId,
-              amount: part.amount,
-              paymentMethod: part.method,
-              accountId: part.accountId,
-              paymentDate: new Date().toISOString(),
-            }),
-          })
-          if (!payRes.ok) {
-            const payErr = await payRes.json().catch(() => ({}))
+        if (!result.ok) {
+          if (result.stage === "payment") {
+            // Fiş oluştu, stok girdi — geri almak yerine uyar: ödeme Fişler
+            // ekranından tamamlanabilir, fişi silmek stoğu da geri alırdı.
             toast({
               title: "Fiş oluştu, ödeme kaydedilemedi",
-              description: payErr?.error || "Ödemeyi Fişler üzerinden tekrar deneyin",
+              description: result.error,
               variant: "destructive",
             })
-            setIsSubmitting(false)
             return
           }
-          paymentResults.push(await payRes.json().catch(() => null))
+          throw new Error(result.error)
         }
-      }
 
-      const paidSum = round2(paymentParts.reduce((s, p) => s + p.amount, 0))
-      // Hesap seçilmeden yazılan parça varsayılan Kasa'ya düştü: söyle, ve kasa
-      // yeni açıldıysa listeyi tazele ki sonraki alış onu AÇIKÇA seçsin.
-      const accountNote = defaultedAccountNote(paymentResults)
-      if (accountNote) void mutateAccounts()
-      toast({
-        title: "Alış kaydedildi",
-        description: withAccountNote(`${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
-          isCredit ? " (açık hesap)" : ` • ${currency(paidSum)} ödendi`
-        }`, accountNote),
-      })
+        // Fiş kesildi ama stok yazılamadıysa sunucu uyarı döner (alış bloklanmaz).
+        if (result.invoice?.stockWarning) {
+          toast({
+            title: "Stok güncellenemedi",
+            description: String(result.invoice.stockWarning),
+            variant: "destructive",
+          })
+        }
 
-      // Fiş için alışın anlık görüntüsü — sepet birazdan sıfırlanacağı için burada al.
-      // Toplamlar faturanın sunucudaki değerleriyle hizalı olsun (fiş = fatura).
-      const netVal = invoice?.netAmount != null ? Number(invoice.netAmount) : t.net
-      const vatVal = invoice?.vatAmount != null ? Number(invoice.vatAmount) : t.vat
-      // Ödeme dökümü/para üstü: parçalı modda parçalardan, değilse nakit ödenenden.
-      let tenderVal: number
-      let changeVal: number
-      let receiptParts: { label: string; amount: number }[] | undefined
-      if (splitMode && !isCredit) {
-        const methodLabel = (m: PaymentMethod) => PAYMENT_METHODS.find((x) => x.value === m)?.label ?? m
-        receiptParts = paymentParts.map((p) => ({ label: methodLabel(p.method), amount: p.amount }))
-        const enteredCash = parseAmount(split.CASH)
-        const recordedCash = paymentParts.find((p) => p.method === "CASH")?.amount ?? 0
-        tenderVal = splitPaid
-        changeVal = Math.max(0, round2(enteredCash - recordedCash))
-      } else {
-        tenderVal = parseAmount(tk.tendered)
-        changeVal = tenderVal > 0 ? Math.max(0, round2(tenderVal - invoiceTotal)) : 0
-        receiptParts = undefined
-      }
-      const receipt: ReceiptData = {
-        direction: "incoming",
-        invoiceNo: invoice.invoiceNo ?? null,
-        date: new Date().toISOString(),
-        companyName: selectedCompany?.name ?? "",
-        company: receiptCompany,
-        counterpartyName: tk.supplierId ? suppliers.find((s) => s.id === tk.supplierId)?.name ?? null : null,
-        notes: tk.note.trim() || null,
-        items: cart.map((l) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unit: l.unit,
-          unitPrice: l.unitPrice,
-          vatRate: l.vatRate,
-          total: lineTotals(l).total,
-        })),
-        net: netVal,
-        vat: vatVal,
-        total: invoiceTotal,
-        paymentLabel: PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label ?? "Nakit",
-        tendered: tenderVal,
-        change: changeVal,
-        isCredit,
-        parts: receiptParts,
-      }
-      setLastPurchase({ id: invoice.id, invoiceNo: invoice.invoiceNo, receipt })
-      resetPurchase()
-    } catch (error: any) {
-      toast({ title: "Hata", description: error?.message || "Alış tamamlanamadı", variant: "destructive" })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [
-    companyId,
-    tickets,
-    activeTicket,
-    warehouseId,
-    isCredit,
-    paymentMethod,
-    accountId,
-    toast,
-    resetPurchase,
-    suppliers,
-    selectedCompany,
-    splitMode,
-    split,
-    splitPaid,
-    cashAccountId,
-    bankAccountId,
-    cardAccountId,
-    mutateAccounts,
-  ])
+        const { invoice, parts, paidSum, total: invoiceTotal, accountNote } = result
+        const done = paymentSummary(pay, invoiceTotal)
+        // Hesap seçilmeden yazılan parça varsayılan Kasa'ya düştü: söyle, ve kasa
+        // yeni açıldıysa listeyi tazele ki sonraki alış onu AÇIKÇA seçsin.
+        if (accountNote) void mutateAccounts()
+        toast({
+          title: "Alış kaydedildi",
+          description: withAccountNote(
+            `${invoice.invoiceNo ?? "Fiş"} oluşturuldu${
+              pay.isCredit ? " (açık hesap)" : ` • ${currency(paidSum)} ödendi`
+            }`,
+            accountNote,
+          ),
+        })
 
-  // F2 → alışı tamamla (POS benzeri hızlı kapatma).
+        // Fiş için alışın anlık görüntüsü — sepet birazdan sıfırlanacağı için burada al.
+        // Toplamlar faturanın sunucudaki değerleriyle hizalı olsun (fiş = fatura).
+        const paymentLabel = pay.isCredit ? "Açık hesap" : paymentLabelOf(pay.method, pay.provider)
+        const receipt: ReceiptData = {
+          direction: "incoming",
+          invoiceNo: invoice.invoiceNo ?? null,
+          date: new Date().toISOString(),
+          companyName: selectedCompany?.name ?? "",
+          company: receiptCompany,
+          counterpartyName: tk.supplierId ? suppliers.find((s) => s.id === tk.supplierId)?.name ?? null : null,
+          notes: tk.note.trim() || null,
+          items: cart.map((l) => ({
+            description: l.description,
+            quantity: l.quantity,
+            unit: l.unit,
+            unitPrice: l.unitPrice,
+            vatRate: l.vatRate,
+            total: lineTotals(l).total,
+          })),
+          net: invoice?.netAmount != null ? Number(invoice.netAmount) : t.net,
+          vat: invoice?.vatAmount != null ? Number(invoice.vatAmount) : t.vat,
+          total: invoiceTotal,
+          // Parçalı ödemede döküm `parts`ta; buradaki etiket tek yöntemli alışın başlığı.
+          paymentLabel,
+          tendered: done.tendered,
+          change: done.change,
+          isCredit: pay.isCredit,
+          parts: pay.splitMode && !pay.isCredit ? receiptParts(parts) : undefined,
+        }
+        setLastPurchase({ id: invoice.id, invoiceNo: invoice.invoiceNo, receipt })
+        setRecent({
+          id: invoice.id,
+          invoiceNo: invoice.invoiceNo,
+          total: invoiceTotal,
+          paymentLabel: pay.splitMode && !pay.isCredit ? "Parçalı" : paymentLabel,
+          change: done.change,
+          receipt,
+        })
+        resetPurchase()
+      } catch (error: any) {
+        toast({ title: "Hata", description: error?.message || "Alış tamamlanamadı", variant: "destructive" })
+      } finally {
+        // Ödeme hatasında try içinden dönülse bile burası çalışır — kilit tek yerde açılır.
+        submitLock.current = false
+        setIsSubmitting(false)
+      }
+    },
+    [
+      companyId,
+      tickets,
+      activeTicket,
+      payment,
+      accounts,
+      warehouseId,
+      toast,
+      resetPurchase,
+      suppliers,
+      selectedCompany,
+      receiptCompany,
+      mutateAccounts,
+    ]
+  )
+
+  /**
+   * Tek tuşla ödeme: yöntemi ekranda da seçer, sonra alışı tamamlar. Hesap,
+   * paneldeki yöntem düğmesiyle AYNI kuralla o yöntemin kanalına geçer.
+   */
+  const quickPay = useCallback(
+    (kind: QuickPay) => {
+      const patch: Partial<PaymentState> =
+        kind === "CREDIT"
+          ? { isCredit: true, splitMode: false }
+          : withMethodChannel(
+              { method: kind, isCredit: false, splitMode: false, ...(kind !== "CASH" ? { tendered: "" } : {}) },
+              channelIds
+            )
+      patchPayment(patch)
+      void handleComplete(patch)
+    },
+    [patchPayment, handleComplete, channelIds]
+  )
+
+  // F2 → seçili yöntemle tamamla; F8 nakit, F9 kart, F10 açık hesap (tek tuşla).
+  // `e.repeat` elenir; açık bir pencere varken çalışmaz (bkz. Hızlı Satış).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "F2") {
-        e.preventDefault()
-        if (!isSubmitting && active.cart.length > 0) handleComplete()
-      }
+      const kind = e.key === "F2" ? "F2" : PAY_KEYS[e.key]
+      if (!kind) return
+      // F10 tarayıcının menüsünü açar; bu ekranda tuş bizimdir.
+      e.preventDefault()
+      if (e.repeat || lastPurchase !== null || shortPayWarn !== null || anyDialogOpen()) return
+      if (active.cart.length === 0) return
+      if (kind === "F2") void handleComplete()
+      else quickPay(kind)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [handleComplete, isSubmitting, active.cart.length])
+  }, [handleComplete, quickPay, lastPurchase, shortPayWarn, active.cart.length])
+
+  /** Son işlem satırından fişi yeniden yazdır (pencere kapandıktan sonra da). */
+  const printRecent = () => {
+    if (!recent) return
+    const w = window.open("", "_blank", "width=420,height=720")
+    if (!w) {
+      toast({
+        title: "Açılır pencere engellendi",
+        description: "Fiş için bu site için açılır pencerelere izin verin.",
+        variant: "destructive",
+      })
+      return
+    }
+    w.document.write(buildReceiptHtml(recent.receipt, true, receiptTemplate))
+    w.document.close()
+    w.focus()
+  }
 
   const previewUrl = (id: string) =>
     `${typeof window !== "undefined" ? window.location.origin : ""}/faturalar/${id}/onizleme?company=${companyId}`
@@ -694,11 +723,15 @@ export function QuickPurchaseScreen() {
 
   return (
     <div className="space-y-3">
+      <RecentDocBar label="Son alış" idleText="Alış bekleniyor" doc={recent} onPrint={printRecent}>
+        <FullscreenButton />
+      </RecentDocBar>
+
       {/* Tutar / Ödenen / Para Üstü kutuları */}
       <div className="grid grid-cols-3 gap-3">
         <StatTile label="Tutar" value={currency(totals.total)} tone="brand" />
         <StatTile label="Ödenen" value={currency(paidDisplay)} tone="blue" />
-        <StatTile label="Para Üstü" value={currency(changeDisplay)} tone="green" />
+        <StatTile label="Para Üstü" value={currency(summary.change)} tone="green" />
       </div>
 
       <div className="grid items-start gap-3 xl:grid-cols-[1fr_380px]">
@@ -707,6 +740,33 @@ export function QuickPurchaseScreen() {
             bir eleman (sepet tablosu, uzun ürün adı) sütunu ekran dışına taşırır ve
             sayfa yana kayar. Sıfırlanınca taşma kendi kabında kalır. */}
         <div className="min-w-0 space-y-3">
+          {/* Barkod / ürün arama — EN ÜSTTE ve odakta (Hızlı Satış'la aynı düzen):
+              okuyucu kodu yazıp Enter'a basar, ürün sepete düşer, odak kutuda kalır.
+              "3*barkod" miktarı 3 yapar. */}
+          <Card className="border-kobipo-blue/40 dark:border-primary/40">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-2">
+                <Search className="h-5 w-5 shrink-0 text-kobipo-blue dark:text-primary" />
+                <div className="min-w-0 flex-1">
+                  <ProductCombobox
+                    companyId={companyId}
+                    products={products}
+                    defaults={{ unit: "ADET", vatRate: 20 }}
+                    priceContext="purchase"
+                    onSelect={addProductToCart}
+                    createButtonLabel="Yeni Ürün"
+                    categoryOptions={categoryOptions}
+                    warehouses={warehouses}
+                    scanMode
+                    handleRef={scanRef}
+                    placeholder="Barkod okutun veya ürün adı yazın (3* ile miktar)"
+                    inputClassName="h-11 text-base"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Park edilen tedarikçiler */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             {tickets.map((t, i) => {
@@ -716,7 +776,11 @@ export function QuickPurchaseScreen() {
                 <button
                   key={i}
                   type="button"
-                  onClick={() => setActiveTicket(i)}
+                  onClick={() => {
+                    setActiveTicket(i)
+                    shortPayAcked.current = false
+                    focusScan()
+                  }}
                   className={cn(
                     "flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
                     i === activeTicket
@@ -995,32 +1059,6 @@ export function QuickPurchaseScreen() {
             </CardContent>
           </Card>
 
-          {/* Ürün arama — sepetin altında, hızlı ürünlerin üstünde.
-              ProductCombobox'un sonuç listesi artık body'ye portal ile basılıyor,
-              yani bu kartın overflow'u onu kırpamaz. */}
-          <Card>
-            <CardContent className="space-y-2 p-3">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <Search className="h-4 w-4 shrink-0 text-kobipo-blue dark:text-primary" />
-                <span className="text-sm font-semibold">Ürün Ara / Ekle</span>
-                {/* Uzun ipucu telefonda satırı taşırıyordu: küçük ekranda gizli. */}
-                <span className="hidden text-xs text-muted-foreground sm:inline">
-                  — barkod okut, ürün ara ya da yeni ekle
-                </span>
-              </div>
-              <ProductCombobox
-                companyId={companyId}
-                products={products}
-                defaults={{ unit: "ADET", vatRate: 20 }}
-                priceContext="purchase"
-                onSelect={addProductToCart}
-                createButtonLabel="Yeni Ürün"
-                categoryOptions={categoryOptions}
-                warehouses={warehouses}
-              />
-            </CardContent>
-          </Card>
-
           {/* Hızlı ürün tuşları */}
           {products.length > 0 && (
             <Card>
@@ -1046,7 +1084,10 @@ export function QuickPurchaseScreen() {
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => addProductToCart(p)}
+                      onClick={() => {
+                        addProductToCart(p)
+                        focusScan()
+                      }}
                       className="flex flex-col justify-between gap-1 rounded-lg border border-border p-2 text-left transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
                     >
                       <span className="line-clamp-2 text-xs font-medium">{p.name}</span>
@@ -1081,6 +1122,11 @@ export function QuickPurchaseScreen() {
                     placeholder="Tedarikçi ara (serbest alış için boş bırakın)…"
                   />
                 </div>
+                {payment.isCredit && !active.supplierId && (
+                  <p className="mt-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    Açık hesap için tedarikçi seçin — seçilmezse fiş ödenmemiş kalır ama borç kimseye yazılmaz.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1117,190 +1163,19 @@ export function QuickPurchaseScreen() {
             </CardContent>
           </Card>
 
-          {/* Ödeme: tek yöntem veya parçalı */}
+          {/* Ödeme — Hızlı Satış/Kahveci ile ORTAK panel. */}
           <Card>
             <CardContent className="space-y-3 p-3">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ödeme</Label>
-              {!isCredit && (
-                <button
-                  type="button"
-                  onClick={() => setSplitMode((v) => !v)}
-                  className={cn(
-                    "flex w-full items-center justify-center gap-2 rounded-lg border-2 p-2.5 text-sm font-bold transition-colors",
-                    splitMode
-                      ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
-                      : "border-dashed border-kobipo-blue/50 text-kobipo-blue hover:bg-kobipo-blue/5 dark:border-primary/50 dark:text-primary dark:hover:bg-primary/10"
-                  )}
-                >
-                  <Split className="h-4 w-4" />
-                  Parçalı Ödeme{splitMode ? " • Açık" : ""}
-                </button>
-              )}
-
-              {isCredit ? null : splitMode ? (
-                <div className="space-y-2">
-                  {PAYMENT_METHODS.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <div key={m.value} className="flex items-center gap-2">
-                        <span className="flex w-28 shrink-0 items-center gap-1.5 text-sm font-medium">
-                          <Icon className="h-4 w-4 text-muted-foreground" />
-                          {m.label}
-                        </span>
-                        <Input
-                          value={split[m.value]}
-                          onChange={(e) => setSplit((s) => ({ ...s, [m.value]: e.target.value }))}
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          className="h-9 flex-1 text-right tabular-nums"
-                        />
-                      </div>
-                    )
-                  })}
-                  <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-1.5 text-sm">
-                    <span className="text-muted-foreground">Toplam ödenen</span>
-                    <span className="font-semibold tabular-nums">{currency(splitPaid)}</span>
-                  </div>
-                  <div className="flex items-center justify-between px-1 text-sm">
-                    <span className="text-muted-foreground">{splitRemaining >= 0 ? "Kalan" : "Para üstü"}</span>
-                    <span
-                      className={cn(
-                        "font-bold tabular-nums",
-                        splitRemaining > 0.005 ? "text-amber-600 dark:text-amber-400" : "text-kobipo-green"
-                      )}
-                    >
-                      {currency(Math.abs(splitRemaining))}
-                    </span>
-                  </div>
-                  {splitRemaining > 0.005 && (
-                    <button
-                      type="button"
-                      onClick={fillSplitRemainder}
-                      className="w-full rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
-                    >
-                      Kalanı nakite ekle
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <>
-                  {paymentMethod === "CASH" && (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs text-muted-foreground">Ödenen (nakit)</Label>
-                        <span className="text-xs text-muted-foreground">
-                          Para Üstü: <span className="font-bold text-kobipo-green">{currency(change)}</span>
-                        </span>
-                      </div>
-                      <Input
-                        value={active.tendered}
-                        onChange={(e) => setTendered(e.target.value)}
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        className="h-11 text-right text-lg font-bold tabular-nums"
-                      />
-                      <div className="grid grid-cols-4 gap-2">
-                        {[20, 50, 100, 200].map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => setTendered(String(n))}
-                            className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:border-kobipo-blue hover:bg-kobipo-blue/5 dark:hover:border-primary dark:hover:bg-primary/10"
-                          >
-                            {n}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => addCash(20)}
-                          className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
-                        >
-                          +20
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => addCash(-20)}
-                          className="rounded-lg border border-border py-2 text-sm font-semibold transition-colors hover:bg-muted"
-                        >
-                          −20
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTendered(String(round2(totals.total)))}
-                          className="rounded-lg border border-kobipo-green/40 bg-kobipo-green/10 py-2 text-sm font-semibold text-kobipo-green transition-colors hover:bg-kobipo-green/20"
-                        >
-                          Tam
-                        </button>
-                      </div>
-                    </>
-                  )}
-
-                  <div className={cn("grid grid-cols-3 gap-2", paymentMethod === "CASH" && "border-t pt-3")}>
-                    {PAYMENT_METHODS.map((m) => {
-                      const Icon = m.icon
-                      const activeState = !isCredit && paymentMethod === m.value
-                      return (
-                        <button
-                          key={m.value}
-                          type="button"
-                          onClick={() => {
-                            setPaymentMethod(m.value)
-                            setIsCredit(false)
-                            if (m.value !== "CASH") setTendered("")
-                          }}
-                          className={cn(
-                            "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-[11px] font-semibold transition-colors",
-                            activeState
-                              ? "border-kobipo-blue bg-kobipo-blue/10 text-kobipo-blue dark:border-primary dark:bg-primary/15 dark:text-primary"
-                              : "border-border hover:bg-muted"
-                          )}
-                        >
-                          <Icon className="h-5 w-5" />
-                          {m.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setIsCredit((v) => !v)}
-                className={cn(
-                  "w-full rounded-lg border p-2.5 text-sm font-semibold transition-colors",
-                  isCredit
-                    ? "border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-                    : "border-border text-muted-foreground hover:bg-muted"
-                )}
-              >
-                Açık Hesap (sonra öde) {isCredit ? "• Açık" : ""}
-              </button>
-
-              {!isCredit && !splitMode && accounts.length > 0 && (
-                <div>
-                  <Label className="text-xs text-muted-foreground">Kasa / Banka Hesabı</Label>
-                  <Select value={accountId} onValueChange={setAccountId}>
-                    <SelectTrigger className="mt-1.5">
-                      <SelectValue placeholder="Hesap seçin" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accounts.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name} {a.type === "CASH" ? "(Kasa)" : "(Banka)"}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              {!isCredit && splitMode && (
-                <p className="px-1 text-xs text-muted-foreground">
-                  Nakit kasadan, kart/havale bankadan otomatik işlenir. Kalan tutar açık hesap olarak kalır.
-                </p>
-              )}
+              <PaymentPanel
+                total={totals.total}
+                state={payment}
+                onChange={patchPayment}
+                accounts={accounts}
+                methods={QUICK_PURCHASE_METHODS}
+                quickCash={QUICK_CASH}
+                shortcuts={PAY_SHORTCUTS}
+              />
             </CardContent>
           </Card>
 
@@ -1321,10 +1196,19 @@ export function QuickPurchaseScreen() {
                   {currency(totals.total)}
                 </span>
               </div>
+              {summary.remaining > 0.005 && (
+                <div className="flex justify-between px-1 text-sm">
+                  <span className="text-muted-foreground">Açık kalan</span>
+                  <span className="font-bold tabular-nums text-amber-600 dark:text-amber-400">
+                    {currency(summary.remaining)}
+                  </span>
+                </div>
+              )}
               <Button
                 className="mt-1 h-12 w-full text-base"
                 variant="success"
-                onClick={handleComplete}
+                // Sarmalı: handleComplete'in ilk argümanı ödeme seçimi — tıklama olayı oraya gitmesin.
+                onClick={() => void handleComplete()}
                 disabled={isSubmitting || active.cart.length === 0}
               >
                 {isSubmitting ? (
@@ -1345,12 +1229,40 @@ export function QuickPurchaseScreen() {
                 )}
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                İpucu: <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">F2</kbd> ile alışı tamamla
+                <Kbd>F2</Kbd> tamamla · <Kbd>F8</Kbd> nakit · <Kbd>F9</Kbd> kart · <Kbd>F10</Kbd> açık hesap
               </p>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      {/* Eksik ödeme: kalan borç tedarikçi yoksa kimseye yazılmaz. */}
+      <Dialog open={shortPayWarn !== null} onOpenChange={(open) => !open && setShortPayWarn(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Ödenmeyen tutar var</DialogTitle>
+            <DialogDescription>
+              {currency(shortPayWarn ?? 0)} ödenmeden kalıyor ve tedarikçi seçilmediği için bu borç
+              kimseye yazılmayacak. Takip için önce tedarikçi seçin.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="outline" onClick={() => setShortPayWarn(null)}>
+              Geri dön
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                shortPayAcked.current = true
+                setShortPayWarn(null)
+                void handleComplete()
+              }}
+            >
+              Yine de tamamla
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Önceki fiyatlar (geçmiş) modalı */}
       <Dialog open={priceModalLine !== null} onOpenChange={(open) => !open && setPriceModalLine(null)}>
@@ -1435,7 +1347,14 @@ export function QuickPurchaseScreen() {
 
       {/* Alış tamamlandı: yazdır / paylaş */}
       <Dialog open={lastPurchase !== null} onOpenChange={(open) => !open && setLastPurchase(null)}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent
+          className="sm:max-w-sm"
+          // Pencere kapanınca odak barkod kutusuna dönsün: sonraki ürün hemen okutulabilsin.
+          onCloseAutoFocus={(e) => {
+            e.preventDefault()
+            focusScan()
+          }}
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-kobipo-green" />
