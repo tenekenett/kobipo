@@ -88,9 +88,16 @@ export function CompanySelector() {
           <SelectTrigger className="h-6 w-auto justify-start gap-1.5 border-0 bg-transparent p-0 text-sm font-bold text-kobipo-navy shadow-none focus:ring-0 focus:ring-offset-0 dark:text-foreground">
             <SelectValue placeholder="Firma seçin" />
           </SelectTrigger>
-          <SelectContent className="min-w-[220px]">
+          {/* Liste ekran genişliğiyle sınırlı, uzun ünvan KESİLMEZ alt satıra kırılır: mobilde
+              liste en uzun ünvan kadar genişleyip ekrandan taşıyordu (Eren, 2026-10-06) ve
+              aynı başlayan ünvanlar ("EREN FORKLİFT PNÖMATİK…" üç kez) kesilince ayırt edilemez. */}
+          <SelectContent collisionPadding={8} className="min-w-[220px] max-w-[calc(100vw-1rem)] sm:max-w-md">
             {mainCompanies.map((company) => (
-              <SelectItem key={company.id} value={company.id} className="cursor-pointer">
+              <SelectItem
+                key={company.id}
+                value={company.id}
+                className="cursor-pointer whitespace-normal break-words py-2 leading-snug"
+              >
                 {/* Ünvanlar şubeler arasında aynı olabildiği için şube ismi parantezde. */}
                 {companyDisplayName(company)}
               </SelectItem>
