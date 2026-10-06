@@ -50,7 +50,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
-import { filenameFromContentDisposition } from "@/lib/utils"
+import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ExportButton } from "@/components/export/export-button"
 import { FaturaIslemMenu } from "@/components/faturalar/fatura-islem-menu"
@@ -535,70 +535,24 @@ export default function FaturalarListing({
 
   const handleDownloadIncomingPdf = async (uuid: string, invoiceNo: string | null) => {
     if (!companyId || !uuid) return
+    // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
     setDownloadingInboxPdfUuid(uuid)
-    try {
-      const res = await fetch(
-        `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(
-          companyId,
-        )}`,
-      )
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        toast({
-          title: "PDF indirilemedi",
-          description: data.error || "Bilinmeyen hata",
-          variant: "destructive",
-        })
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      window.open(url, "_blank", "noopener")
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-      toast({ title: `PDF açıldı${invoiceNo ? ` · ${invoiceNo}` : ""}` })
-    } catch (e: any) {
-      toast({
-        title: "Hata",
-        description: e?.message || "PDF açılırken hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setDownloadingInboxPdfUuid(null)
-    }
+    const r = await openPdfInNewTab(
+      `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(companyId)}`,
+      { fallbackName: `${invoiceNo || uuid}.pdf` },
+    )
+    if (!r.ok) toast({ title: "PDF açılamadı", description: r.error, variant: "destructive" })
+    setDownloadingInboxPdfUuid(null)
   }
 
   const handleDownloadGibPdf = async (rawInvoiceId: string, invoiceNo: string) => {
     setDownloadingPdfId(rawInvoiceId)
-    try {
-      const res = await fetch(`/api/e-donusum/invoices/${rawInvoiceId}/pdf`)
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        toast({
-          title: "PDF indirilemedi",
-          description: data.error || "Bilinmeyen hata",
-          variant: "destructive",
-        })
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = filenameFromContentDisposition(res.headers.get("Content-Disposition")) || `${invoiceNo}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast({ title: "Resmî PDF indirildi" })
-    } catch (e: any) {
-      toast({
-        title: "Hata",
-        description: e?.message || "PDF indirilirken hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setDownloadingPdfId(null)
-    }
+    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${rawInvoiceId}/pdf`, {
+      fallbackName: `${invoiceNo}.pdf`,
+    })
+    if (!r.ok) toast({ title: "Resmî PDF açılamadı", description: r.error, variant: "destructive" })
+    else if (r.opened === "download") toast({ title: "Resmî PDF indirildi" })
+    setDownloadingPdfId(null)
   }
 
   // Listede geçen kategoriler (filtre menüsü için) ve seçili kategoriye göre satırlar.

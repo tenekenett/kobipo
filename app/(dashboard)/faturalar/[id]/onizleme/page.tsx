@@ -29,7 +29,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
-import { filenameFromContentDisposition } from "@/lib/utils"
+import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
 import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
@@ -271,30 +271,15 @@ export default function FaturaOnizlemePage() {
     if (!invoice) return
     // "PDF İndir": taslak sayfasındaki (editör) GİB düzeninde ön izleme PDF'inin
     // kaydedilmiş fatura sürümünü indirir. Resmî GİB PDF'i (ETTN'li) ayrı buton.
+    // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
     setIsDownloadingPreviewPdf(true)
-    try {
-      const idForPdf = invoice.id || invoiceId
-      const companyQs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
-      const response = await fetch(`/api/e-donusum/invoices/${idForPdf}/preview-pdf${companyQs}`)
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        toast({ title: "PDF indirilemedi", description: data.error || "Bilinmeyen hata", variant: "destructive" })
-        return
-      }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${invoice.invoiceNo}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (error: any) {
-      toast({ title: "Hata", description: error?.message || "PDF indirilirken hata oluştu", variant: "destructive" })
-    } finally {
-      setIsDownloadingPreviewPdf(false)
-    }
+    const idForPdf = invoice.id || invoiceId
+    const companyQs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${idForPdf}/preview-pdf${companyQs}`, {
+      fallbackName: `${invoice.invoiceNo}.pdf`,
+    })
+    if (!r.ok) toast({ title: "PDF açılamadı", description: r.error, variant: "destructive" })
+    setIsDownloadingPreviewPdf(false)
   }
 
   const handleCheckStatus = async () => {
@@ -326,51 +311,23 @@ export default function FaturaOnizlemePage() {
     const inboxUuid = invoice?.incomingSource?.uuid
     if (!inboxUuid || !companyId) return
     setIsDownloadingIncomingDoc(true)
-    try {
-      const response = await fetch(
-        `/api/e-donusum/inbox/${encodeURIComponent(inboxUuid)}/view?companyId=${encodeURIComponent(companyId)}`,
-      )
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        toast({ title: "Belge açılamadı", description: data.error || "Bilinmeyen hata", variant: "destructive" })
-        return
-      }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      window.open(url, "_blank", "noopener")
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    } catch (error: any) {
-      toast({ title: "Hata", description: error?.message || "Belge açılırken hata oluştu", variant: "destructive" })
-    } finally {
-      setIsDownloadingIncomingDoc(false)
-    }
+    const r = await openPdfInNewTab(
+      `/api/e-donusum/inbox/${encodeURIComponent(inboxUuid)}/view?companyId=${encodeURIComponent(companyId)}`,
+      { fallbackName: `${invoice?.invoiceNo || inboxUuid}.pdf` },
+    )
+    if (!r.ok) toast({ title: "Belge açılamadı", description: r.error, variant: "destructive" })
+    setIsDownloadingIncomingDoc(false)
   }
 
   const handleDownloadGibPdf = async () => {
     if (!invoice) return
     setIsDownloadingGibPdf(true)
-    try {
-      const response = await fetch(`/api/e-donusum/invoices/${invoice.id}/pdf`)
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        toast({ title: "PDF indirilemedi", description: data.error || "Bilinmeyen hata", variant: "destructive" })
-        return
-      }
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${invoice.invoiceNo}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-      toast({ title: "Resmî PDF indirildi" })
-    } catch (error: any) {
-      toast({ title: "Hata", description: error?.message || "PDF indirilirken hata oluştu", variant: "destructive" })
-    } finally {
-      setIsDownloadingGibPdf(false)
-    }
+    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${invoice.id}/pdf`, {
+      fallbackName: `${invoice.eDocumentNo || invoice.invoiceNo}.pdf`,
+    })
+    if (!r.ok) toast({ title: "Resmî PDF açılamadı", description: r.error, variant: "destructive" })
+    else if (r.opened === "download") toast({ title: "Resmî PDF indirildi" })
+    setIsDownloadingGibPdf(false)
   }
 
   const performCancelInvoice = async () => {

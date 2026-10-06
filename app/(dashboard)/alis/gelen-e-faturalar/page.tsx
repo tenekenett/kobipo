@@ -58,6 +58,7 @@ import {
 } from "@/lib/format"
 import { ExportButton } from "@/components/export/export-button"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
+import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
 
 interface IncomingRow {
   id: string
@@ -381,36 +382,14 @@ export default function GelenEFaturalarPage() {
 
   const handleDownloadPdf = async (uuid: string, invoiceNo: string | null) => {
     if (!companyId) return
+    // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
     setDownloadingPdfUuid(uuid)
-    try {
-      const res = await fetch(
-        `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(
-          companyId,
-        )}`,
-      )
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        toast({
-          title: "PDF indirilemedi",
-          description: data.error || "Bilinmeyen hata",
-          variant: "destructive",
-        })
-        return
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      window.open(url, "_blank", "noopener")
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-      toast({ title: `PDF açıldı${invoiceNo ? ` · ${invoiceNo}` : ""}` })
-    } catch (e: any) {
-      toast({
-        title: "Hata",
-        description: e?.message || "PDF açılırken hata oluştu",
-        variant: "destructive",
-      })
-    } finally {
-      setDownloadingPdfUuid(null)
-    }
+    const r = await openPdfInNewTab(
+      `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(companyId)}`,
+      { fallbackName: `${invoiceNo || uuid}.pdf` },
+    )
+    if (!r.ok) toast({ title: "PDF açılamadı", description: r.error, variant: "destructive" })
+    setDownloadingPdfUuid(null)
   }
 
   const handleRespond = async (
