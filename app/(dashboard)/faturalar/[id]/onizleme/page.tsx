@@ -297,24 +297,6 @@ export default function FaturaOnizlemePage() {
     }
   }
 
-  // "Taslak Olarak Kaydet": fatura zaten (editörde) DRAFT olarak kaydedildi; bu
-  // aksiyon kullanıcıyı satış/alış listesine döndürüp kaydın oluştuğunu bildirir.
-  const handleSaveDraftAndReturn = () => {
-    if (!invoice) return
-    toast(
-      invoice.type === "PURCHASE"
-        ? { title: "Fatura kaydedildi", description: "Alış faturası kaydedildi." }
-        : kaydedildigindeKesinlesir({ invoiceType: invoice.invoiceType })
-          ? { title: "Fatura kaydedildi", description: "Fatura kaydedildi." }
-          : { title: "Taslak kaydedildi", description: "Fatura taslak olarak kaydedildi." }
-    )
-    const target =
-      invoice.type === "PURCHASE"
-        ? `/alis/fatura?company=${companyId || ""}`
-        : `/satis/fatura?company=${companyId || ""}`
-    router.push(target)
-  }
-
   const handleCheckStatus = async () => {
     if (!invoice) return
     setIsCheckingStatus(true)
@@ -795,14 +777,9 @@ export default function FaturaOnizlemePage() {
               </Link>
             </WriteAction>
           )}
-          {invoice.status === "DRAFT" && (
-            <WriteAction>
-              <Button variant="success" onClick={handleSaveDraftAndReturn}>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Faturayı Kaydet
-              </Button>
-            </WriteAction>
-          )}
+          {/* "Faturayı Kaydet" düğmesi 2026-10-07'de kaldırıldı: fatura editörde ZATEN
+              kaydedilmiş olarak buraya gelir; düğme hiçbir şey kaydetmeden "Geri" ile aynı
+              listeye dönüyordu ve kullanıcıya faturanın henüz kaydedilmediğini düşündürüyordu. */}
           {invoice.status === "DRAFT" &&
             !invoice.uuid &&
             (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
