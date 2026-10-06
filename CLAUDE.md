@@ -276,6 +276,10 @@ Kurallar:
     pano sayfası oradan geçer). Arşiv ekranı da orada ve kilitten BAĞIMSIZ sorulur.
   - Satın alma tanıtımı erişimi engellemez: kapalı ücretli modüller panonun üstündeki
     kapatılabilir şeritte duyurulur (`components/dashboard/module-upsell-banner.tsx`).
+    Yalnız SATIŞTAKİ modül: sistem yönetiminde (Paket & Fiyat) "Aktif" + ücretli
+    (`getSellableModuleKeys`); şubede `notForBranches` modül duyurulmaz. "Ücretsiz değilse
+    satılıktır" diye istemcide karar VERMEYİN: 2026-10-06'ya kadar böyleydi ve satışa
+    açılmamış Muhasebe tüm firmalara "satın alın" diye duyuruldu.
     `LockedAccount` yalnız gerçekten sıfır modüllü firmada çıkar.
   - Gereksinimi ücretli olan modül ücretsiz YAPILAMAZ (restoran → stok); yoksa
     bağımlılık tamamlama ücretli modülü bedavaya açar.

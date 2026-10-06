@@ -12,7 +12,7 @@ import { CompanySelector } from "@/components/dashboard/company-selector"
 import { BranchContextBanner } from "@/components/dashboard/branch-context-banner"
 import { SubscriptionNoticeBanner } from "@/components/dashboard/subscription-notice-banner"
 import { ModuleUpsellBanner } from "@/components/dashboard/module-upsell-banner"
-import { getFreeModuleKeys } from "@/lib/billing/free-modules"
+import { getSellableModuleKeys } from "@/lib/billing/free-modules"
 import { DashboardCompanyProvider } from "@/components/dashboard/dashboard-company-provider"
 import { SWRProvider } from "@/components/providers/swr-provider"
 import { ModuleGuard } from "@/components/dashboard/module-guard"
@@ -102,10 +102,9 @@ export default async function DashboardLayout({
   const initialRole =
     visibleCompanies.find((c) => !c.isBranch)?.role ?? visibleCompanies[0]?.role ?? "VIEWER"
 
-  // Tanıtım şeridinin "satılabilir modül" ölçüsü. Tek sorgu, kısa ömürlü önbellekli
-  // (bkz. lib/billing/free-modules.ts); altı pano sayfasında ayrı ayrı okunmasının yerini
-  // aldı — kilit kararı artık ücretsiz kümeye bakmıyor.
-  const freeModules = await getFreeModuleKeys()
+  // Tanıtım şeridinin "satıştaki modül" ölçüsü (sistem yönetiminde Aktif + ücretli). Tek
+  // sorgu, kısa ömürlü önbellekli (bkz. lib/billing/free-modules.ts).
+  const sellableModules = await getSellableModuleKeys()
 
   return (
     <SWRProvider>
@@ -122,10 +121,10 @@ export default async function DashboardLayout({
                 asistanı açıyordu (Chrome'da ölçüldü, 2026-09-16). */}
             <div className="w-full min-w-0 overflow-x-clip p-4 pb-24 sm:p-6 sm:pb-24">
               <SubscriptionNoticeBanner />
-              {/* Kapalı ücretli modüllerin tanıtımı. Ücretsiz küme SUNUCUDA çözülür:
-                  istemci hangi modülün satılabilir olduğunu bilmiyor ve yanlış bilirse
-                  elle kapatılmış TEMEL bir modülü "satın al" diye tanıtırdı. */}
-              <ModuleUpsellBanner freeModules={freeModules} />
+              {/* Kapalı ve SATIŞTAKİ modüllerin tanıtımı. Satış kümesi SUNUCUDA çözülür:
+                  istemci hangi modülün satıldığını bilmiyor ve yanlış bilirse satışa
+                  açılmamış modülü (pilot öncesi Muhasebe) "satın al" diye tanıtırdı. */}
+              <ModuleUpsellBanner sellableModules={sellableModules} />
               <BranchContextBanner />
               <CompanySelector />
               <div className="mt-4 w-full min-w-0">

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"
 import { ShoppingCart, X } from "lucide-react"
 import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import { CompanyLink } from "@/components/dashboard/company-link"
-import { MANAGEABLE_MODULES, isAccountLocked, sanitizeFreeModules } from "@/lib/modules"
+import { MANAGEABLE_MODULES, isAccountLocked } from "@/lib/modules"
 
 /**
  * KAPALI ÜCRETLİ MODÜLLERİN TANITIMI — satın alma akışının panodaki tek girişi.
@@ -22,11 +22,14 @@ import { MANAGEABLE_MODULES, isAccountLocked, sanitizeFreeModules } from "@/lib/
  * Yalnız PANO yollarında görünür: layout tüm panel sayfalarını sarıyor, her ekranda
  * tanıtım göstermek gürültü olurdu.
  *
- * `freeModules` sunucudan geçirilir (layout `getFreeModuleKeys()` çağırıyor): hangi
- * modülün satılabilir olduğu istemcide bilinmiyor ve yanlış bilinirse şerit, sistem
- * yöneticisinin elle kapattığı TEMEL bir modülü "satın al" diye tanıtırdı.
+ * YALNIZ SATIŞTAKİ modül duyurulur: `sellableModules` sunucudan gelir (layout →
+ * `getSellableModuleKeys()`: sistem yönetiminde "Aktif" + ücretli). 2026-10-06'ya kadar
+ * şerit "ücretsiz değilse satılıktır" diye kendi karar veriyordu ve satışa açılmamış
+ * Muhasebe'yi tüm firmaların yöneticilerine duyurdu (Eren'den ekran görüntüsüyle geldi);
+ * "İncele" ise onu listelemeyen abonelik ekranına götürüyordu. Şubede şubeye
+ * açılmayan modül (`notForBranches`) de duyurulmaz: şube onu satın alamaz.
  */
-export function ModuleUpsellBanner({ freeModules = [] }: { freeModules?: string[] }) {
+export function ModuleUpsellBanner({ sellableModules = [] }: { sellableModules?: string[] }) {
   const pathname = usePathname()
   const { selectedCompany, userRole } = useDashboardCompany()
   const [dismissed, setDismissed] = useState(true)
@@ -47,10 +50,13 @@ export function ModuleUpsellBanner({ freeModules = [] }: { freeModules?: string[
 
   const closedPaid = useMemo(() => {
     if (!selectedCompany) return []
-    const free = new Set(sanitizeFreeModules(freeModules))
+    const sellable = new Set(sellableModules)
     const disabled = new Set(selectedCompany.disabledModules ?? [])
-    return MANAGEABLE_MODULES.filter((m) => !free.has(m.key) && disabled.has(m.key))
-  }, [selectedCompany, freeModules])
+    const isBranch = Boolean(selectedCompany.parentCompanyId)
+    return MANAGEABLE_MODULES.filter(
+      (m) => sellable.has(m.key) && disabled.has(m.key) && !(isBranch && m.notForBranches),
+    )
+  }, [selectedCompany, sellableModules])
 
   const onDashboard = pathname === "/dashboard" || pathname.startsWith("/dashboard/")
   if (!onDashboard || dismissed || !selectedCompany || userRole !== "ADMIN") return null
