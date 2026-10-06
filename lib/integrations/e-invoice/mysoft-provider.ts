@@ -4,6 +4,12 @@ import { normalizeUnitCode } from "@/lib/data/units"
 import { computeDocumentTotals } from "@/lib/invoice/document-totals"
 import { istanbulDay } from "@/lib/format"
 import {
+  KAMU_GIB_USER_TYPE,
+  KAMU_PAYMENT_MEANS_CODE,
+  usesKamuProfile,
+  type PublicInvoiceData,
+} from "./public-invoice"
+import {
   isTemplateNotFoundError,
   pickApprovedXslt,
   templateNotFoundMessage,
@@ -971,10 +977,17 @@ async sendInvoice(invoiceData: any): Promise<any> {
       // tipi 'IADE' ise, profile değeri 'TEMELFATURA' olmalıdır." Kullanıcının Ticari
       // seçimi burada yok sayılır; 00018 fallback'ine bırakılsaydı ilk deneme
       // gereksiz yere reddedilirdi.
+      // KAMU: alıcı kamu kurumuysa ödeme IBAN'ı (her profilde) ve harcama birimi
+      // biliniyorsa KAMU profili — karar ve ölçüm public-invoice.ts'te. e-Arşiv'de yok
+      // sayılır: kamu kurumu e-Fatura mükellefidir, e-Arşiv'e düşmez.
+      const publicInvoice: PublicInvoiceData | null =
+        isEFatura && invoiceData.publicInvoice?.iban ? invoiceData.publicInvoice : null
       const initialProfile = isEFatura
         ? isReturn
           ? "TEMELFATURA"
-          : (invoiceData.eInvoiceProfile === "TEMELFATURA" ? "TEMELFATURA" : "TICARIFATURA")
+          : usesKamuProfile(publicInvoice, isReturn)
+            ? "KAMU"
+            : (invoiceData.eInvoiceProfile === "TEMELFATURA" ? "TEMELFATURA" : "TICARIFATURA")
         : "EARSIVFATURA"
       let profile = initialProfile
 
@@ -1259,6 +1272,30 @@ async sendInvoice(invoiceData: any): Promise<any> {
                 ...(invoiceData.branch.phone ? { telephone1: invoiceData.branch.phone } : {}),
                 ...(invoiceData.branch.email ? { email1: invoiceData.branch.email } : {}),
               },
+            }
+          : {}),
+
+        // KAMU FATURASI (public-invoice.ts). Ölçüldü (2026-10-06, önizleme XML):
+        // paymentMeans → cac:PaymentMeans/PayeeFinancialAccount/ID = IBAN;
+        // publicServicePayee* → cac:BuyerCustomerParty (harcama birimi). Mysoft
+        // kamu alıcısında IBAN'sız belgeyi profilden bağımsız reddediyor.
+        ...(publicInvoice
+          ? {
+              paymentMeans: [
+                {
+                  paymentMeansCode: KAMU_PAYMENT_MEANS_CODE,
+                  payeeFinancialAccount: { iD: publicInvoice.iban, currencyCode: "TRY" },
+                },
+              ],
+              ...(publicInvoice.payee
+                ? {
+                    publicServicePayeeVKN: publicInvoice.payee.vkn,
+                    publicServicePayeePartyName: publicInvoice.payee.name,
+                    publicServicePayeeCountry: "TÜRKİYE",
+                    publicServicePayeeCity: publicInvoice.payee.city,
+                    publicServicePayeeCitysubdivision: publicInvoice.payee.district,
+                  }
+                : {}),
             }
           : {}),
 
@@ -2172,6 +2209,7 @@ async sendInvoice(invoiceData: any): Promise<any> {
           eWaybillStartDate: string | null
           isPassive: boolean
           isEInvoiceTaxpayer: boolean
+          isPublicInstitution: boolean
           raw: any
         } | null
       }
@@ -2229,6 +2267,10 @@ async sendInvoice(invoiceData: any): Promise<any> {
           eWaybillStartDate: model.eWaybillStartDate || null,
           isPassive,
           isEInvoiceTaxpayer,
+          // `gibUserType`: 1 özel, 2 KAMU. (`gibAccountType` ise tüzel/şahıs ayrımıdır —
+          // Pamukkale Üniversitesi: gibAccountType 1, gibUserType 2.) Kamuya kesilen
+          // e-Faturada IBAN zorunlu — bkz. public-invoice.ts.
+          isPublicInstitution: model.gibUserType === KAMU_GIB_USER_TYPE,
           raw: model,
         },
       }

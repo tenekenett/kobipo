@@ -670,6 +670,18 @@ model Customer {
   // Pinlenen GİB posta kutusu (alias). Birden çok PK'sı olan alıcıya e-Fatura
   // gönderirken tercih edilen kutu; boşsa Mysoft ilk geçerli PK'yı otomatik seçer.
   eInvoiceAlias        String?
+  // KAMU KURUMU (lib/integrations/e-invoice/public-invoice.ts). Kamuya kesilen
+  // e-Faturada ödemenin yatırılacağı IBAN zorunludur. Bayrak GİB kaydından
+  // (gibUserType = 2) gönderimde kendiliğinden basılır, elle de açılabilir.
+  isPublicInstitution    Boolean @default(false)
+  // Ödemenin yatırılacağı hesap; boşsa firmanın TEK uygun banka hesabı.
+  publicPaymentAccountId String?
+  // Ödemeyi yapacak HARCAMA BİRİMİ (belgede BuyerCustomerParty) — kurumdan öğrenilir.
+  // VKN boşsa belge KAMU profiline geçmez, yalnız IBAN eklenir.
+  publicPayeeVkn         String?
+  publicPayeeName        String?
+  publicPayeeCity        String?
+  publicPayeeDistrict    String?
   paymentDueDays       Int?
   openingBalanceAmount Decimal   @default(0) @db.Decimal(14, 2)
   openingBalanceType   String    @default("DEBIT")
@@ -687,6 +699,7 @@ model Customer {
   updatedAt            DateTime  @updatedAt
 
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  publicPaymentAccount FinancialAccount? @relation("CustomerPublicPaymentAccount", fields: [publicPaymentAccountId], references: [id], onDelete: SetNull)
   linkedSupplier    Supplier?          @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
   invoices          Invoice[]
   quotes            Quote[]
@@ -711,6 +724,7 @@ model Customer {
   @@index([classification1Id])
   @@index([classification2Id])
   @@index([authorizedUserId])
+  @@index([publicPaymentAccountId])
   @@map("customers")
 }
 
@@ -1468,6 +1482,7 @@ model FinancialAccount {
   bankStatements  BankStatement[]
   cashCounts      CashCount[]
   ledgerAccount   AccountPlan?     @relation("AccountPlanFinancialAccount")
+  publicCustomers Customer[]       @relation("CustomerPublicPaymentAccount")
 
   @@unique([companyId, slug])
   @@index([companyId])

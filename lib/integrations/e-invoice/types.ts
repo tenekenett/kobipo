@@ -78,6 +78,13 @@ export interface InvoiceData {
   }
   items: InvoiceItemData[]
   notes?: string
+  /**
+   * KAMU FATURASI — alıcı kamu kurumuysa ödemenin yatırılacağı IBAN (Mysoft
+   * `paymentMeans` → UBL cac:PaymentMeans) ve varsa harcama birimi
+   * (`publicServicePayee*` → cac:BuyerCustomerParty; doluysa profil KAMU).
+   * Kural ve ölçüm: lib/integrations/e-invoice/public-invoice.ts.
+   */
+  publicInvoice?: import("./public-invoice").PublicInvoiceData
 }
 
 export interface InvoiceItemData {

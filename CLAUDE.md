@@ -79,6 +79,34 @@ bloğu olarak basar. Karar tek yerde: `lib/integrations/e-invoice/branch-party.t
   adresi). Ölçüm yolu: `npx tsx scripts/sube-adresi-kontrol.ts --canli --test`
   (provider'da `draftXmlOnly`; taslak UBL'i döner, GİB'e belge gitmez).
 
+## Kamu kurumuna e-Fatura: IBAN zorunlu, harcama birimi kartta
+
+Kamu kurumuna (GİB kaydında `gibUserType = 2`, posta kutusu çoğu zaman
+`defaultpk@muhasebat.gov.tr`) kesilen e-Faturada ödemenin yatırılacağı IBAN belgede
+zorunludur. Mysoft bunu PROFİLDEN BAĞIMSIZ arar: TİCARİ taslak *"Kamuya düzenlenen
+belgelerde PaymentMeans.PayeeFinancialAccount alanı ilgili değerler ile
+doldurulmalıdır"* ile reddedildi (Eren Vinç → Pamukkale Üniversitesi, 2026-10-06 —
+Kobipo'nun ilk kamu alıcısı; alan o güne kadar hiç gönderilmiyordu). Karar tek yerde:
+`lib/integrations/e-invoice/public-invoice.ts` (saf) + `public-invoice.server.ts`
+(GİB sorgusu, hesaplar). İki gönderim yolu da (send-invoice-helper ve create-invoice)
+oradan geçer.
+
+- "Kamu mu?" = GİB kaydı YA DA `Customer.isPublicInstitution`. GİB kamu derse bayrak
+  kendiliğinden basılır; GİB "özel" derse elle açılmış bayrak silinmez.
+- IBAN: kartta seçilen hesap (`publicPaymentAccountId`); seçilmemişse firmanın TEK uygun
+  hesabı (aktif, BANKA, TL, mod-97 geçerli TR IBAN). Birden çoksa Kobipo SEÇMEZ, gönderim
+  Mysoft'a gitmeden durur. Seçili hesap pasife alınmışsa başka hesaba düşülmez.
+- Harcama birimi (`publicPayee*` → Mysoft `publicServicePayee*` → UBL
+  `cac:BuyerCustomerParty`) kurumdan öğrenilir; alıcının bilgisiyle DOLDURULMAZ. Girilmişse
+  profil KAMU olur; girilmemişse kullanıcının profili (Ticari/Temel) kalır ve yalnız IBAN
+  eklenir (KAMU'yu harcama birimsiz göndermek Mysoft swagger'ındaki zorunluluğa takılırdı).
+  İadede profil TEMELFATURA kalır, IBAN yine gider.
+- Ölçüm yolları (2026-10-06): Mysoft önizleme XML'i alanların belgeye nasıl girdiğini
+  gösterir ama DOĞRULAMA YAPMAZ; taslak PDF ucu da Mysoft'un kamu kontrolünü çalıştırmaz
+  (IBAN'sız belge ikisinden de geçti). GİB şematronu (`checkSchemaSchematronForInvoiceUBL`)
+  KAMU profilinde IBAN'ı ister, harcama birimini istemez. Mysoft'un kamu kontrolü yalnız
+  gerçek kayıtta (taslak kaydetme / gönderim) çalışır — "önizlemede geçti" ≠ "kabul edilir".
+
 ## e-Arşiv yalnız Mysoft'ta ONAYLI şablonla basılır
 
 Canlı Mysoft'ta ölçüldü (2026-09-14, Reypo mükellefi, taslak PDF ucu): e-Arşiv'de

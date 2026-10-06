@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useClassificationLabels } from "@/lib/swr/use-company-data"
+import { useAccounts, useClassificationLabels } from "@/lib/swr/use-company-data"
+import { isEligiblePublicAccount, normalizeIban } from "@/lib/integrations/e-invoice/public-invoice"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -35,6 +36,13 @@ type FormData = {
   email: string
   contactPerson: string
   eInvoiceAlias: string
+  /** Kamu kurumu: e-Faturada IBAN zorunlu (lib/integrations/e-invoice/public-invoice.ts). */
+  isPublicInstitution: boolean
+  publicPaymentAccountId: string
+  publicPayeeVkn: string
+  publicPayeeName: string
+  publicPayeeCity: string
+  publicPayeeDistrict: string
   paymentDueDays: string
   openingBalanceAmount: string
   openingBalanceType: OpeningBalanceType
@@ -55,6 +63,7 @@ type VknInfo = {
   eInvoiceStartDate?: string | null
   eWaybillStartDate?: string | null
   accountType?: number | null
+  isPublicInstitution?: boolean
   aliases?: string[]
   notFound?: boolean
 }
@@ -85,6 +94,12 @@ const defaultFormData: FormData = {
   email: "",
   contactPerson: "",
   eInvoiceAlias: "",
+  isPublicInstitution: false,
+  publicPaymentAccountId: "",
+  publicPayeeVkn: "",
+  publicPayeeName: "",
+  publicPayeeCity: "",
+  publicPayeeDistrict: "",
   paymentDueDays: "",
   openingBalanceAmount: "",
   openingBalanceType: "DEBIT",
@@ -175,6 +190,8 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
         setFormData((prev) => ({
           ...prev,
           name: prev.name.trim() ? prev.name : data.accountName,
+          // GİB kamu diyorsa bölüm açılır (gönderimde de aynı kayıttan basılır).
+          isPublicInstitution: prev.isPublicInstitution || Boolean(data.isPublicInstitution),
         }))
         setVknInfo({
           accountName: data.accountName,
@@ -182,6 +199,7 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
           eInvoiceStartDate: data.eInvoiceStartDate ?? null,
           eWaybillStartDate: data.eWaybillStartDate ?? null,
           accountType: data.accountType ?? null,
+          isPublicInstitution: Boolean(data.isPublicInstitution),
           aliases: Array.isArray(data.aliases) ? data.aliases : [],
         })
         toast({
@@ -244,6 +262,12 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
           email: data.email || "",
           contactPerson: data.contactPerson || "",
           eInvoiceAlias: data.eInvoiceAlias || "",
+          isPublicInstitution: Boolean(data.isPublicInstitution),
+          publicPaymentAccountId: data.publicPaymentAccountId || "",
+          publicPayeeVkn: data.publicPayeeVkn || "",
+          publicPayeeName: data.publicPayeeName || "",
+          publicPayeeCity: data.publicPayeeCity || "",
+          publicPayeeDistrict: data.publicPayeeDistrict || "",
           paymentDueDays:
             data.paymentDueDays === null || data.paymentDueDays === undefined
               ? ""
@@ -340,6 +364,26 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
         classification1Id: formData.classification1Id || null,
         classification2Id: formData.classification2Id || null,
         authorizedUserId: formData.authorizedUserId || null,
+        // Kamu bölümü yalnız müşteride; kapatılınca seçimler de silinir — gizli kalan
+        // yarım bir harcama birimi kaydı 400'e düşürmesin.
+        ...(isCustomer
+          ? formData.isPublicInstitution
+            ? {}
+            : {
+                publicPaymentAccountId: null,
+                publicPayeeVkn: null,
+                publicPayeeName: null,
+                publicPayeeCity: null,
+                publicPayeeDistrict: null,
+              }
+          : {
+              isPublicInstitution: undefined,
+              publicPaymentAccountId: undefined,
+              publicPayeeVkn: undefined,
+              publicPayeeName: undefined,
+              publicPayeeCity: undefined,
+              publicPayeeDistrict: undefined,
+            }),
       }
       const endpoint = mode === "edit" && entityId ? `/api/cari/${entityType}/${entityId}` : `/api/cari/${entityType}`
       const response = await fetch(endpoint, {
@@ -399,6 +443,23 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
     for (const a of vknInfo?.aliases ?? []) set.add(a)
     return Array.from(set)
   }, [formData.eInvoiceAlias, vknInfo])
+
+  // Kamu faturasında IBAN'ı belgeye yazılabilecek hesaplar — gönderimdeki kuralla
+  // AYNI ölçü (liste zaten yalnız aktif hesapları döndürür).
+  const { accounts } = useAccounts(isCustomer ? companyId : null)
+  const publicAccounts = useMemo(
+    () =>
+      accounts.filter((a) =>
+        isEligiblePublicAccount({ ...a, iban: a.iban ?? null, currency: a.currency ?? "TRY", isActive: true }),
+      ),
+    [accounts],
+  )
+  const savedPublicAccountMissing =
+    Boolean(formData.publicPaymentAccountId) &&
+    accounts.length > 0 &&
+    !publicAccounts.some((a) => a.id === formData.publicPaymentAccountId)
+  const formatIban = (iban: string | null | undefined) =>
+    normalizeIban(iban).replace(/(.{4})/g, "$1 ").trim()
 
   if (!companyId) {
     return (
@@ -499,6 +560,11 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                             {vknInfo.accountType === 1 && (
                               <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
                                 Tüzel kişi
+                              </span>
+                            )}
+                            {vknInfo.isPublicInstitution && (
+                              <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                                Kamu kurumu
                               </span>
                             )}
                             {vknInfo.accountType === 2 && (
@@ -627,6 +693,113 @@ export function CariEntityFormPage({ entityType, mode, entityId }: CariEntityFor
                       rows={3}
                     />
                   </div>
+
+                  {isCustomer && (
+                    <div className="space-y-3 rounded-md border p-3 md:col-span-2">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1">
+                          <Label htmlFor="public-institution-switch" className="text-base">
+                            Kamu kurumu
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            Kamu kurumuna kesilen e-Faturada ödemenin yatırılacağı IBAN zorunludur.
+                            GİB kaydında kamu görünen alıcıda bu seçenek fatura gönderilirken
+                            kendiliğinden açılır.
+                          </p>
+                        </div>
+                        <Switch
+                          id="public-institution-switch"
+                          className="mt-1 shrink-0"
+                          checked={formData.isPublicInstitution}
+                          onCheckedChange={(checked) =>
+                            setFormData((prev) => ({ ...prev, isPublicInstitution: checked }))
+                          }
+                          disabled={isLoading}
+                        />
+                      </div>
+
+                      {formData.isPublicInstitution && (
+                        <div className="grid gap-4 border-t pt-3 md:grid-cols-2">
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="publicPaymentAccountId">Ödemenin yatırılacağı hesap</Label>
+                            <select
+                              id="publicPaymentAccountId"
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              value={formData.publicPaymentAccountId}
+                              onChange={(e) =>
+                                setFormData((prev) => ({ ...prev, publicPaymentAccountId: e.target.value }))
+                              }
+                              disabled={isLoading}
+                            >
+                              <option value="">
+                                {publicAccounts.length === 1
+                                  ? `Otomatik — ${publicAccounts[0].name}`
+                                  : "Hesap seçin"}
+                              </option>
+                              {publicAccounts.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                  {account.name} — {formatIban(account.iban)}
+                                </option>
+                              ))}
+                              {savedPublicAccountMissing && (
+                                <option value={formData.publicPaymentAccountId}>
+                                  Kayıtlı hesap artık uygun değil — başka hesap seçin
+                                </option>
+                              )}
+                            </select>
+                            <p className="text-xs text-muted-foreground">
+                              {publicAccounts.length === 0
+                                ? "IBAN'ı geçerli, aktif bir TL banka hesabınız yok. Finans → Finans Kanalları'ndan hesabın IBAN'ını girin."
+                                : publicAccounts.length === 1
+                                  ? "Faturada IBAN olarak basılır. Tek banka hesabınız olduğu için seçmeseniz de o kullanılır."
+                                  : "Faturada IBAN olarak basılır. Birden çok banka hesabınız olduğu için seçim zorunlu."}
+                            </p>
+                          </div>
+
+                          <div className="space-y-1 md:col-span-2">
+                            <p className="text-sm font-medium">Harcama birimi (isteğe bağlı)</p>
+                            <p className="text-xs text-muted-foreground">
+                              Ödemeyi yapacak birim — kurum siparişte ya da sözleşmede bildirir;
+                              faturanın gittiği muhasebe biriminden farklı olabilir. Girilirse fatura
+                              KAMU senaryosuyla gider; boş bırakılırsa yalnız IBAN eklenir.
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="publicPayeeVkn">Harcama birimi VKN</Label>
+                            <Input
+                              id="publicPayeeVkn"
+                              inputMode="numeric"
+                              maxLength={10}
+                              value={formData.publicPayeeVkn}
+                              onChange={(e) =>
+                                setFormData((prev) => ({ ...prev, publicPayeeVkn: e.target.value.replace(/\D/g, "") }))
+                              }
+                              disabled={isLoading}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="publicPayeeName">Harcama birimi ünvanı</Label>
+                            <Input
+                              id="publicPayeeName"
+                              value={formData.publicPayeeName}
+                              onChange={(e) => setFormData((prev) => ({ ...prev, publicPayeeName: e.target.value }))}
+                              disabled={isLoading}
+                            />
+                          </div>
+                          <CityDistrictSelect
+                            idPrefix="kamu-harcama"
+                            city={formData.publicPayeeCity}
+                            district={formData.publicPayeeDistrict}
+                            onChange={({ city, district }) =>
+                              setFormData((prev) => ({ ...prev, publicPayeeCity: city, publicPayeeDistrict: district }))
+                            }
+                            disabled={isLoading}
+                            fieldClassName="space-y-2"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 

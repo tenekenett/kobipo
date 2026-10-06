@@ -18,6 +18,8 @@ import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/com
 import { getActiveXsltName } from "@/lib/integrations/e-invoice/active-template"
 import { templateFallbackWarning } from "@/lib/integrations/e-invoice/send-invoice-helper"
 import { resolveBranchParty } from "@/lib/integrations/e-invoice/branch-party"
+import { publicInvoiceErrorHint } from "@/lib/integrations/e-invoice/public-invoice"
+import { resolvePublicInvoiceForSend } from "@/lib/integrations/e-invoice/public-invoice.server"
 import { assertEInvoiceRuntimeReady } from "@/lib/integrations/e-invoice/runtime-guard"
 import { generateInvoiceNumber, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number"
 import { ensureUsageLimit } from "@/lib/middleware/usage"
@@ -804,7 +806,20 @@ const invoiceData = {
   globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
   globalChargeAmount: Number(invoice.globalChargeAmount || 0),
   payableRoundingAmount: Number(invoice.payableRoundingAmount || 0),
+  publicInvoice: undefined as import("@/lib/integrations/e-invoice/public-invoice").PublicInvoiceData | undefined,
 };
+
+        // KAMU KURUMU: taslak/gönderim yoluyla (send-invoice-helper) AYNI karar — alıcı
+        // kamuysa ödeme IBAN'ı belgeye girer, eksikse Mysoft'a gitmeden durur.
+        const publicInvoice = await resolvePublicInvoiceForSend({
+          provider,
+          companyId: invoice.companyId,
+          invoiceType,
+          receiver: invoice.customer,
+          receiverIsCustomer: true,
+        })
+        if (!publicInvoice.ok) throw new Error(publicInvoice.error)
+        invoiceData.publicInvoice = publicInvoice.data || undefined
 
         // Kullanıcının seçtiği aktif belge dizaynını (xsltName) gönderime ekle.
         if (companyId) {
@@ -867,7 +882,8 @@ const invoiceData = {
                 ? `${rawError} → Müşteri GİB'de kayıtlı bir e-Fatura mükellefi değil. Müşteri VKN/TCKN'sini kontrol edin; mükellef değilse E-Arşiv olarak gönderin.`
                 : `${rawError} → Müşterinin VKN/TCKN bilgisini Müşteri Kartı'ndan kontrol edin.`
           } else {
-            friendlyError = rawError
+            const publicHint = publicInvoiceErrorHint(rawError)
+            friendlyError = publicHint ? `${rawError} → ${publicHint}` : rawError
           }
           await prisma.invoice.update({
             where: { id: invoice.id },

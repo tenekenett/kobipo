@@ -12,6 +12,8 @@ import { resolveCompanyEInvoiceProvider } from "@/lib/integrations/e-invoice/com
 import { parseInternetSalesInfo } from "@/lib/invoice/internet-sales"
 import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/template-refresh"
 import { normalizeGibDocumentNo, returnRefError } from "@/lib/invoice/return-ref"
+import { publicInvoiceErrorHint } from "@/lib/integrations/e-invoice/public-invoice"
+import { resolvePublicInvoiceForSend } from "@/lib/integrations/e-invoice/public-invoice.server"
 
 /**
  * Mysoft gönderdiğimiz e-Arşiv şablonunu reddedip mükellefin ONAYLI şablonuna
@@ -226,6 +228,8 @@ async function resolveSendContext(
     | "E_INVOICE"
     | "E_ARCHIVE"
   const customerVkn = (receiver?.taxNumber || "").replace(/\D/g, "")
+  // Sorgu sonucu kamu kararında yeniden kullanılır (undefined = hiç sorulmadı).
+  let gibCheck: any = undefined
   if (
     effectiveInvoiceType === "E_ARCHIVE" &&
     customerVkn &&
@@ -233,7 +237,7 @@ async function resolveSendContext(
     typeof (provider as any).getGibAccount === "function"
   ) {
     try {
-      const gibCheck = await (provider as any).getGibAccount(customerVkn)
+      gibCheck = await (provider as any).getGibAccount(customerVkn)
       if (gibCheck?.success && gibCheck.data?.isEInvoiceTaxpayer) {
         effectiveInvoiceType = "E_INVOICE"
         await prisma.invoice.update({
@@ -247,7 +251,23 @@ async function resolveSendContext(
     } catch (e: any) {
       // GİB sorgusu yapılamadıysa orijinal seçimle devam et — Mysoft yine hata verirse alttaki yakalanır.
       console.warn("[send-invoice-helper] GİB sorgusu başarısız:", e?.message)
+      gibCheck = null
     }
+  }
+
+  // KAMU KURUMU: alıcı kamuysa ödeme IBAN'ı (ve varsa harcama birimi) belgeye girer;
+  // eksikse Mysoft'a gitmeden ne yapılacağını söyleyen hatayla durur
+  // (bkz. public-invoice.ts). Taslak, önizleme ve gönderim aynı kararı kullanır.
+  const publicInvoice = await resolvePublicInvoiceForSend({
+    provider,
+    companyId: invoice.companyId,
+    invoiceType: effectiveInvoiceType,
+    receiver,
+    receiverIsCustomer: !isPurchaseReturn,
+    gibCheck,
+  })
+  if (!publicInvoice.ok) {
+    return { ok: false, status: 400, error: publicInvoice.error, integrationStatus: "" }
   }
 
   // ŞUBE ADRESİ: faturayı kesen firma bir şubeyse kendi adresi belgeye AgentParty
@@ -342,8 +362,10 @@ async function resolveSendContext(
     // Alıcının pinlediği posta kutusu (yoksa undefined → Mysoft otomatik seçer).
     pkAlias: receiverPkAlias,
     // E-Fatura'da kullanıcının seçtiği profil (Ticari/Temel). E-Arşiv'de yok sayılır.
+    // Kamu alıcısında harcama birimi girilmişse provider bunu KAMU'ya çevirir.
     eInvoiceProfile:
       effectiveInvoiceType === "E_INVOICE" ? opts.eInvoiceProfile : undefined,
+    publicInvoice: publicInvoice.data || undefined,
     prefix: resolvedPrefix,
     tenantIdentifierNumber: tenantVkn || undefined,
     // Doluysa provider isInternetSales:true + internetShipmentInfo yazar.
@@ -626,7 +648,8 @@ export async function createGibDraft(
         ? `${rawError} → Müşteri GİB'de kayıtlı bir e-Fatura mükellefi değil (ya da VKN/TCKN'si hatalı). Müşteri kartındaki Vergi Numarası alanını kontrol edin; mükellef değilse bu fatura E-Arşiv olarak gönderilmeli.`
         : `${rawError} → Müşterinin VKN/TCKN bilgisini Müşteri Kartı'ndan kontrol edin.`
   } else {
-    friendlyError = rawError
+    const publicHint = publicInvoiceErrorHint(rawError)
+    friendlyError = publicHint ? `${rawError} → ${publicHint}` : rawError
   }
 
   const integrationStatus = `ERROR:${friendlyError}`

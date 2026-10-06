@@ -142,6 +142,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
       isPassive: result.data.isPassive,
       // 1 = Tüzel (şirket), 2 = Şahıs (gerçek kişi)
       accountType,
+      // GİB'de KAMU kullanıcısı (gibUserType = 2): faturasında IBAN zorunlu
+      // (lib/integrations/e-invoice/public-invoice.ts). Cari formu kamu bölümünü açar.
+      isPublicInstitution: Boolean(result.data.isPublicInstitution),
       aliases,
     })
   } catch (error: any) {

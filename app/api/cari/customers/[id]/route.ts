@@ -15,6 +15,8 @@ import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-di
 import { faturaOdemesiSatirlari, faturaSatirYonu } from "@/lib/cari/ekstre-query"
 import { virmanBakiyeEtkisi, VIRMAN_ENTRY_TYPE } from "@/lib/cari/virman"
 import { fetchVirmanLegsForParty } from "@/lib/cari/virman-db"
+import { kamuAlaniGeldi, mergeKamuBilgisi } from "@/lib/cari/kamu-bilgisi"
+import { kamuBilgisiniDogrula } from "@/lib/cari/kamu-bilgisi.server"
 
 
 export const dynamic = 'force-dynamic'
@@ -541,6 +543,13 @@ export const PUT = withApiErrors(async function PUT(
       }
     }
 
+    // Kamu kurumu bilgisi: gönderilmeyen alan mevcut değerde kalır (lib/cari/kamu-bilgisi.ts).
+    const kamu = mergeKamuBilgisi(body, customer)
+    if (kamuAlaniGeldi(body)) {
+      const kamuHatasi = await kamuBilgisiniDogrula(customer.companyId, kamu)
+      if (kamuHatasi) return NextResponse.json({ error: kamuHatasi }, { status: 400 })
+    }
+
     const paymentDueDaysVal = parsePaymentDueDays(paymentDueDays)
     const openingBalanceAmountVal =
       openingBalanceAmount !== undefined && openingBalanceAmount !== "" && openingBalanceAmount !== null
@@ -721,6 +730,7 @@ export const PUT = withApiErrors(async function PUT(
           email: merged.email,
           contactPerson: merged.contactPerson,
           eInvoiceAlias: merged.eInvoiceAlias,
+          ...kamu,
           paymentDueDays: merged.paymentDueDays,
           openingBalanceAmount: merged.openingBalanceAmount,
           openingBalanceType: merged.openingBalanceType,

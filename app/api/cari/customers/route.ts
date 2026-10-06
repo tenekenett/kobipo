@@ -10,6 +10,8 @@ import { parseCariListSort } from "@/lib/cari/list-sort"
 import { resolveAuthorizedUserIdOnWrite } from "@/lib/cari/visibility"
 import { resolveCariVisibility } from "@/lib/cari/resolve-visibility"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { kamuAlaniGeldi, mergeKamuBilgisi } from "@/lib/cari/kamu-bilgisi"
+import { kamuBilgisiniDogrula } from "@/lib/cari/kamu-bilgisi.server"
 
 export const dynamic = 'force-dynamic'
 
@@ -133,6 +135,12 @@ export const POST = withApiErrors(async function POST(request: Request) {
     }
 
     const access = await ensureCompanyWrite(companyId)
+    // Kamu kurumu bilgisi (IBAN hesabı + harcama birimi) — bkz. lib/cari/kamu-bilgisi.ts.
+    const kamu = mergeKamuBilgisi(body, null)
+    if (kamuAlaniGeldi(body)) {
+      const kamuHatasi = await kamuBilgisiniDogrula(companyId, kamu)
+      if (kamuHatasi) return NextResponse.json({ error: kamuHatasi }, { status: 400 })
+    }
     // Kısıtlı kullanıcı atamayı KENDİ dışına yapamaz; boş bıraktığında da kart
     // kendisine atanır — yoksa açtığı cari daha ilk yüklemede listesinden düşerdi.
     const visibility = await resolveCariVisibility(companyId)
@@ -203,6 +211,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           email,
           contactPerson,
           eInvoiceAlias: eInvoiceAlias ?? null,
+          ...kamu,
           paymentDueDays: parsePaymentDueDays(paymentDueDays),
           openingBalanceAmount: Number.isFinite(parsedOpeningBalanceAmount) ? parsedOpeningBalanceAmount : 0,
           openingBalanceType: parsedOpeningBalanceType,
