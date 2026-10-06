@@ -8,7 +8,15 @@ import {
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
 import { syncIncomingInvoices } from "@/lib/integrations/e-invoice/inbox-sync"
-import { gelenBildirimKarari, gelisZamani, GELEN_TAZELIK_SAAT, profilAdi, SAHIPLENME_ZAMAN_ASIMI_DK } from "./kurallar"
+import {
+  gelenBildirimKarari,
+  gelenBildirimSiniri,
+  gelisZamani,
+  GELEN_TAZELIK_SAAT,
+  OTOMATIK_EPOSTA_BASLANGIC,
+  profilAdi,
+  SAHIPLENME_ZAMAN_ASIMI_DK,
+} from "./kurallar"
 import { hesapKurucusuBul } from "./kurucu.server"
 
 /**
@@ -132,10 +140,11 @@ async function kapat(ids: string[], notifyResult: string, notifyError: string | 
  * senkronu yüzlerce satırla kuyruğun önünü tıkardı (sıra createdAt'e göre, koşum başı
  * `limit` grup); arkadaki GERÇEKTEN yeni fatura sırası gelene kadar tazeliği aşar ve
  * hiç bildirilmeden ESKI kapanırdı. Ölçü `gelisZamani` ile aynı: sentDate ?? docDate ??
- * createdAt. Denenmiş satır (notifyAttempts > 0) burada kapanmaz: kuyrukta HATA_SON olur.
+ * createdAt; sınır `gelenBildirimSiniri` (tazelik ya da OTOMATIK_EPOSTA_BASLANGIC).
+ * Denenmiş satır (notifyAttempts > 0) burada kapanmaz: kuyrukta HATA_SON olur.
  */
 async function eskileriKapat(simdi: Date): Promise<number> {
-  const sinir = new Date(simdi.getTime() - GELEN_TAZELIK_SAAT * 3_600_000)
+  const sinir = gelenBildirimSiniri(simdi, OTOMATIK_EPOSTA_BASLANGIC)
   const r = await prisma.incomingInvoice.updateMany({
     where: {
       notifiedAt: null,
@@ -266,6 +275,7 @@ export async function bekleyenGelenBildirimler(opts: { deadline: number; limit?:
         gelis: gelisZamani(birincil),
         simdi: new Date(),
         deneme: birincil.notifyAttempts,
+        baslangic: OTOMATIK_EPOSTA_BASLANGIC,
       })
       if (karar === "ESKI") {
         await kapat([birincil.id], "ESKI")

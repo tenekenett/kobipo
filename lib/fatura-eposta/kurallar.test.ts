@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest"
 import {
   faturaEpostaAdresi,
   gelenBildirimKarari,
+  gelenBildirimSiniri,
   gelisZamani,
   gidenGonderilebilir,
   gibPostaKutusuMu,
   GELEN_TAZELIK_SAAT,
   hesapKurucusu,
   MAX_DENEME,
+  OTOMATIK_EPOSTA_BASLANGIC,
 } from "./kurallar"
 
 describe("faturaEpostaAdresi", () => {
@@ -78,6 +80,8 @@ describe("gidenGonderilebilir", () => {
 describe("gelen bildirim", () => {
   const simdi = new Date("2026-10-06T12:00:00Z")
   const saatOnce = (h: number) => new Date(simdi.getTime() - h * 3_600_000)
+  /** Başlangıcı çok eskide: yalnız tazelik kuralı ölçülür. */
+  const ESKI_BASLANGIC = new Date("2026-01-01T00:00:00Z")
 
   it("geliş: zarf tarihi → belge tarihi → ilk görülme", () => {
     const createdAt = saatOnce(1)
@@ -87,14 +91,28 @@ describe("gelen bildirim", () => {
   })
 
   it("taze fatura gönderilir, eski senkron bildirilmez", () => {
-    expect(gelenBildirimKarari({ gelis: saatOnce(2), simdi, deneme: 0 })).toBe("GONDER")
-    expect(gelenBildirimKarari({ gelis: saatOnce(GELEN_TAZELIK_SAAT - 1), simdi, deneme: 0 })).toBe("GONDER")
-    expect(gelenBildirimKarari({ gelis: saatOnce(GELEN_TAZELIK_SAAT + 1), simdi, deneme: 0 })).toBe("ESKI")
+    expect(gelenBildirimKarari({ gelis: saatOnce(2), simdi, deneme: 0, baslangic: ESKI_BASLANGIC })).toBe("GONDER")
+    expect(gelenBildirimKarari({ gelis: saatOnce(GELEN_TAZELIK_SAAT - 1), simdi, deneme: 0, baslangic: ESKI_BASLANGIC })).toBe("GONDER")
+    expect(gelenBildirimKarari({ gelis: saatOnce(GELEN_TAZELIK_SAAT + 1), simdi, deneme: 0, baslangic: ESKI_BASLANGIC })).toBe("ESKI")
+  })
+
+  it("otomatik mailin başlangıcından önce gelen fatura bildirilmez (tazelik içinde olsa da)", () => {
+    const baslangic = saatOnce(3)
+    expect(gelenBildirimKarari({ gelis: saatOnce(5), simdi, deneme: 0, baslangic })).toBe("ESKI")
+    expect(gelenBildirimKarari({ gelis: saatOnce(2), simdi, deneme: 0, baslangic })).toBe("GONDER")
+    expect(gelenBildirimSiniri(simdi, baslangic)).toEqual(baslangic)
+    // Başlangıç çok eskideyse sınır tazeliktir.
+    expect(gelenBildirimSiniri(simdi, ESKI_BASLANGIC)).toEqual(saatOnce(GELEN_TAZELIK_SAAT))
+  })
+
+  it("başlangıç anı kodda sabittir ve geriye kaymaz", () => {
+    // Geriye çekilirse geçmiş faturalar müşterilere/kurucuya dökülür (kullanıcı kararı 2026-10-06).
+    expect(OTOMATIK_EPOSTA_BASLANGIC.toISOString()).toBe("2026-10-06T17:50:00.000Z")
   })
 
   it("denenmiş bildirim tazeliği aşınca HATA olarak kapanır (eski diye kaybolmaz)", () => {
-    expect(gelenBildirimKarari({ gelis: saatOnce(GELEN_TAZELIK_SAAT + 1), simdi, deneme: 2 })).toBe("HATA_SON")
-    expect(gelenBildirimKarari({ gelis: saatOnce(1), simdi, deneme: MAX_DENEME })).toBe("HATA_SON")
+    expect(gelenBildirimKarari({ gelis: saatOnce(GELEN_TAZELIK_SAAT + 1), simdi, deneme: 2, baslangic: ESKI_BASLANGIC })).toBe("HATA_SON")
+    expect(gelenBildirimKarari({ gelis: saatOnce(1), simdi, deneme: MAX_DENEME, baslangic: ESKI_BASLANGIC })).toBe("HATA_SON")
   })
 })
 

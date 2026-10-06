@@ -103,15 +103,22 @@ Yapıldı:
   `NotificationSettingsModel.isSendDocumentMail` var; email1 gönderilirse risk doğar).
 - Mysoft'ta webhook yok (swagger-v8 tarandı) → gelen için anlık tetik mümkün değil.
 - CLAUDE.md'ye "Fatura e-postası" bölümü yazıldı.
+- **Gerçek gönderim ölçüldü:** Reypo Medya test faturası ADM2026000000018, PDF (70 KB) + XML
+  ekli olarak kullanıcının hesap e-postasına gitti; Gmail'de doğrudan GELEN KUTUSUNA düştü
+  (spam değil). Kayıt: invoice_email_logs MANUAL/GONDERILDI.
+- **Kullanıcı kararı: geçmiş faturaya mail gitmez** → `OTOMATIK_EPOSTA_BASLANGIC`
+  (2026-10-06 20:50 TR). Gelen: geliş bundan önceyse ESKI; giden tarama: createdAt bundan
+  önceyse "hiç denenmemiş" yoluna girmez. Ölçüm anında iki kuralla da aday 0'dı.
+- `--gelen` ölçümü: Reypo Medya (Mysoft TEST ortamı) kutusunda son 72 saatte 32 fatura, hepsi
+  Mysoft'un deneme faturaları. Yayından sonra yeni gelenler Reypo kurucusuna bildirilir —
+  test ortamını otomatik maillerden çıkarma sorusu kullanıcıya soruldu, cevap yok.
 
 Kalan:
 1. **GitHub sırrı (kullanıcı):** repo → Settings → Secrets and variables → Actions →
    `CRON_SECRET` = Vercel'deki `CRON_SECRET` değeri. Workflow yalnız main'den çalışır.
-2. **Ölçüm — Mysoft test ortamı (`edocumentapi.mytest.tr`) 2026-10-06 19:40'tan beri zaman
-   aşımında.** Açılınca: `--giden=cmulg4a1s000112k041nqz6uj` (göndermez), sonra kullanıcının
-   onayladığı adrese (hesap e-postası) `--gonder --to=…`; `--gelen`.
+2. ~~Ölçüm~~ — yapıldı (yukarıda).
 3. main'e birleştir + push → Vercel dağıtımı. Dağıtımla birlikte giden e-belgeler müşterilere
-   otomatik mail atmaya başlar (migrasyon ile dağıtım arasında kesilenler dahil, 7 gün pencere).
+   otomatik mail atmaya başlar (yalnız OTOMATIK_EPOSTA_BASLANGIC sonrası belgeler).
    Sonra Actions'ta "Run workflow" ile elle bir koşum.
 4. Öneriler (onay yok): fatura editöründe "carinin e-postası yok" uyarısı; gelen listede
    "bildirildi" bilgisi.

@@ -12,6 +12,7 @@ import {
   faturaEpostaAdresi,
   gidenGonderilebilir,
   MAX_DENEME,
+  OTOMATIK_EPOSTA_BASLANGIC,
   SAHIPLENME_ZAMAN_ASIMI_DK,
 } from "./kurallar"
 import { hesapKurucusuBul } from "./kurucu.server"
@@ -288,6 +289,11 @@ export async function bekleyenGidenEpostalar(opts: { deadline: number; limit?: n
         // Taramanın penceresi: son 7 günde dokunulmuş belge. BASLANGIC kaydı zaten
         // eskileri dışarıda tutar; pencere yalnız sorguyu dar tutar.
         updatedAt: { gt: new Date(now - 7 * 24 * 3_600_000) },
+        // Başlangıçtan önce açılmış belge bu yoldan mail ALMAZ (kurallar.ts →
+        // OTOMATIK_EPOSTA_BASLANGIC). updatedAt yetmez: ödeme gibi sonraki her yazma onu
+        // tazeler ve eski bir belge yeni görünürdü. Önce açılıp sonra GİB'e giden taslak
+        // ise anlık yoldan (gidenFaturaEpostasiArkaPlanda) gider.
+        createdAt: { gte: OTOMATIK_EPOSTA_BASLANGIC },
         emailLogs: { none: { kind: "AUTO" } },
       },
       select: { id: true },

@@ -242,8 +242,13 @@ GELEN → Gelen her e-fatura, HESABI AÇAN KİŞİYE (hesap kökündeki en eski 
   elle "son 1 yıl" senkronu ya da yeni firmanın ilk senkronu eski faturaları mail olarak
   dökmez. Eski satırlar kuyruğa girmeden TOPLU kapanır (`eskileriKapat`); tek tek
   kapansalardı kuyruğun önünü tıkar, arkadaki yeni fatura sıra gelmeden 72 saati aşardı.
-- **Başlangıç çizgisi:** migrasyon `20261006000002` var olan her gelen satıra ve SENT
-  e-belgeye `BASLANGIC` yazdı. Yeni bir "geçmişi tara" yolu yazan bu işareti bilmelidir.
+- **Geçmiş faturaya mail GİTMEZ** (kullanıcı kararı): `OTOMATIK_EPOSTA_BASLANGIC`
+  (2026-10-06 20:50 TR, kodda sabit, test sabitler) öncesinde gelen fatura bildirilmez,
+  öncesinde açılmış belge taramadan mail almaz. Migrasyon `20261006000002`'nin
+  `BASLANGIC` işareti tek başına yetmiyordu: migrasyon → yayın arası kesilen belgeler
+  işaretsiz kalıyor, ilk tarama Mysoft'tan son 72 saati çekip hiç senkronlanmamış eski
+  faturaları "yeni" diye açıyordu. Sınırı GERİYE çekmeyin; "geçmişi tara" gibi yeni bir
+  yol da bu ikisini bilmelidir.
 - Anahtarlar `Company.invoiceEmailAuto` / `incomingEmailNotify` (varsayılan açık), DAR
   uçla yazılır (`/api/e-donusum/eposta-ayarlari`): `PUT /api/companies/[id]` kısmi
   gövdede gönderilmeyen alanları siliyor.

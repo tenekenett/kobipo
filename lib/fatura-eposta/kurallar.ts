@@ -9,6 +9,20 @@
  * app/api/e-donusum/cron/fatura-eposta (zamanlanmış tarama).
  */
 
+/**
+ * OTOMATİK MAİLİN BAŞLANGICI (kullanıcı kararı, 2026-10-06): bu andan ÖNCE kesilmiş ya da
+ * gelmiş hiçbir fatura otomatik mail ALMAZ — geçmiş faturalar müşteriye/kurucuya dökülmez.
+ *
+ * Migrasyonun BASLANGIC işareti tek başına yetmiyordu: (1) migrasyon ile yayın arasında
+ * eski kodla kesilen giden belgeler işaretsiz kalıyordu ve taramanın "hiç denenmemiş" yolu
+ * onlara mail atardı; (2) ilk tarama Mysoft'tan son 72 saati çeker, o güne kadar hiç
+ * senkronlanmamış gelen faturalar "yeni" satır olarak açılıp bildirilirdi.
+ *
+ * Elle gönderim bu sınıra bakmaz. Belge GİB'e gittiği an tetiklenen otomatik gönderim de
+ * bakmaz: o yol ancak yeni kodla, yani bu andan sonra çalışır.
+ */
+export const OTOMATIK_EPOSTA_BASLANGIC = new Date("2026-10-06T20:50:00+03:00")
+
 /** Gelen faturanın bildirilebileceği en uzun süre (geliş → bildirim). */
 export const GELEN_TAZELIK_SAAT = 72
 /** Bir mail için en çok deneme; sonra HATA olarak kapanır (sessiz değil: kayıtta durur). */
@@ -146,12 +160,24 @@ export type GelenKarar = "GONDER" | "ESKI" | "HATA_SON"
  *
  * Denenmiş ama gidememiş bir bildirim tazeliği aşınca ESKI değil HATA_SON olur: başarısız
  * gönderim "eski fatura" diye sessizce kaybolmasın.
+ *
+ * `baslangic` = OTOMATIK_EPOSTA_BASLANGIC (sunucu verir; testler kendi anını verir).
  */
-export function gelenBildirimKarari(p: { gelis: Date; simdi: Date; deneme: number }): GelenKarar {
+export function gelenBildirimKarari(p: {
+  gelis: Date
+  simdi: Date
+  deneme: number
+  baslangic: Date
+}): GelenKarar {
   if (p.deneme >= MAX_DENEME) return "HATA_SON"
-  const yasSaat = (p.simdi.getTime() - p.gelis.getTime()) / 3_600_000
-  if (yasSaat > GELEN_TAZELIK_SAAT) return p.deneme > 0 ? "HATA_SON" : "ESKI"
+  if (p.gelis < gelenBildirimSiniri(p.simdi, p.baslangic)) return p.deneme > 0 ? "HATA_SON" : "ESKI"
   return "GONDER"
+}
+
+/** Bu andan önce gelmiş fatura bildirilmez: tazelik sınırı ile başlangıçtan GEÇ olanı. */
+export function gelenBildirimSiniri(simdi: Date, baslangic: Date): Date {
+  const taze = new Date(simdi.getTime() - GELEN_TAZELIK_SAAT * 3_600_000)
+  return taze > baslangic ? taze : baslangic
 }
 
 export type Uyelik = {
