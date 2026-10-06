@@ -18,7 +18,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { ArrowLeft, Download, Send, Printer, ShieldCheck, Loader2, CheckCircle2, XCircle, Clock, Ban, FileDown } from "lucide-react"
 import Link from "next/link"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
-import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
+import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 
 interface InvoiceItem {
@@ -203,13 +203,9 @@ export default function InvoiceDetailPage() {
   const handleDownloadGibPdf = async () => {
     if (!invoice) return
     // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
+    if (!openPdfInNewTab(`/api/e-donusum/invoices/${invoice.id}/pdf`)) return toast(PDF_TAB_BLOCKED)
     setIsDownloadingGibPdf(true)
-    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${invoice.id}/pdf`, {
-      fallbackName: `${invoice.invoiceNo}.pdf`,
-    })
-    if (!r.ok) toast({ title: "Resmî PDF açılamadı", description: r.error, variant: "destructive" })
-    else if (r.opened === "download") toast({ title: "Resmî PDF indirildi" })
-    setIsDownloadingGibPdf(false)
+    setTimeout(() => setIsDownloadingGibPdf(false), 1500)
   }
 
 
@@ -266,11 +262,9 @@ export default function InvoiceDetailPage() {
     // bir jsPDF üreticisi (lib/pdf/invoice-pdf.ts) vardı: aynı belgenin iki farklı
     // düzeni, iki ayrı font yükleme yolu ve iki ayrı kayma kaynağı demekti.
     // Tek kaynak → ekrandan indirilen PDF ile e-postayla giden PDF birebir aynı.
-    const r = await openPdfInNewTab(
-      `/api/faturalar/${invoice.id}/pdf${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`,
-      { fallbackName: `Fatura_${invoice.invoiceNo}.pdf` },
-    )
-    if (!r.ok) toast({ title: "Hata", description: r.error || "PDF üretilemedi", variant: "destructive" })
+    if (!openPdfInNewTab(`/api/faturalar/${invoice.id}/pdf${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`)) {
+      toast(PDF_TAB_BLOCKED)
+    }
   }
 
 

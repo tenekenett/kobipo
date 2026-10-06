@@ -10,6 +10,7 @@ import {
 } from "@/lib/integrations/e-invoice/company-provider"
 import { describeMysoftError } from "@/lib/integrations/e-invoice/error-messages"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
 
 export const dynamic = "force-dynamic"
 
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic"
  * Path: /api/e-donusum/inbox/{ettn}/pdf
  * uuid = Mysoft ETTN
  */
-export const GET = withApiErrors(async function GET(
+export const GET = withNavigationErrorPage(withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ uuid: string }> },
 ) {
@@ -68,12 +69,12 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: describeMysoftError(result.error) }, { status: 502 })
     }
 
-    const filename = `Gelen_${incoming?.invoiceNo || uuid.slice(0, 8)}_GIB.pdf`
+    const filename = documentFileName(incoming?.invoiceNo, uuid.slice(0, 8))
     return new NextResponse(new Uint8Array(result.pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Disposition": inlineDisposition(filename),
         "Content-Length": String(result.pdfBuffer.length),
         "Cache-Control": "no-store",
       },
@@ -89,4 +90,4 @@ export const GET = withApiErrors(async function GET(
       { status: 500 },
     )
   }
-})
+}))

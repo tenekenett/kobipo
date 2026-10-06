@@ -10,6 +10,7 @@ import {
   type GibDocKind,
 } from "@/lib/pdf/gib-invoice-pdf"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 
 export const dynamic = "force-dynamic"
@@ -25,7 +26,7 @@ export const dynamic = "force-dynamic"
 
 const n = (v: unknown): number => Number(v) || 0
 
-export const GET = withApiErrors(async function GET(
+export const GET = withNavigationErrorPage(withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -173,12 +174,11 @@ export const GET = withApiErrors(async function GET(
       notes: invoice.notes,
     })
 
-    const safeNo = (invoice.eDocumentNo || invoice.invoiceNo || "taslak-fatura").replace(/[^\w.-]+/g, "-")
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${safeNo}.pdf"`,
+        "Content-Disposition": inlineDisposition(documentFileName(invoice.eDocumentNo || invoice.invoiceNo, "taslak-fatura")),
         "Content-Length": String(pdfBuffer.length),
         "Cache-Control": "no-store",
       },
@@ -191,4 +191,4 @@ export const GET = withApiErrors(async function GET(
     console.error("Error generating saved-invoice preview PDF:", error)
     return NextResponse.json({ error: message || "Önizleme PDF üretilemedi" }, { status: 500 })
   }
-})
+}))

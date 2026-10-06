@@ -50,7 +50,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
-import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
+import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ExportButton } from "@/components/export/export-button"
 import { FaturaIslemMenu } from "@/components/faturalar/fatura-islem-menu"
@@ -536,23 +536,18 @@ export default function FaturalarListing({
   const handleDownloadIncomingPdf = async (uuid: string, invoiceNo: string | null) => {
     if (!companyId || !uuid) return
     // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
+    if (!openPdfInNewTab(`/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(companyId)}`)) {
+      return toast(PDF_TAB_BLOCKED)
+    }
+    // Kısa süre meşgul: çift tıklama iki sekme açmasın.
     setDownloadingInboxPdfUuid(uuid)
-    const r = await openPdfInNewTab(
-      `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(companyId)}`,
-      { fallbackName: `${invoiceNo || uuid}.pdf` },
-    )
-    if (!r.ok) toast({ title: "PDF açılamadı", description: r.error, variant: "destructive" })
-    setDownloadingInboxPdfUuid(null)
+    setTimeout(() => setDownloadingInboxPdfUuid(null), 1500)
   }
 
   const handleDownloadGibPdf = async (rawInvoiceId: string, invoiceNo: string) => {
+    if (!openPdfInNewTab(`/api/e-donusum/invoices/${rawInvoiceId}/pdf`)) return toast(PDF_TAB_BLOCKED)
     setDownloadingPdfId(rawInvoiceId)
-    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${rawInvoiceId}/pdf`, {
-      fallbackName: `${invoiceNo}.pdf`,
-    })
-    if (!r.ok) toast({ title: "Resmî PDF açılamadı", description: r.error, variant: "destructive" })
-    else if (r.opened === "download") toast({ title: "Resmî PDF indirildi" })
-    setDownloadingPdfId(null)
+    setTimeout(() => setDownloadingPdfId(null), 1500)
   }
 
   // Listede geçen kategoriler (filtre menüsü için) ve seçili kategoriye göre satırlar.

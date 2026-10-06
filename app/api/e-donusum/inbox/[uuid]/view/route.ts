@@ -13,6 +13,7 @@ import {
   isMysoftDocumentMissing,
 } from "@/lib/integrations/e-invoice/error-messages"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
 
 export const dynamic = "force-dynamic"
 
@@ -29,7 +30,7 @@ export const dynamic = "force-dynamic"
  * GÜVENLİK: HTML gönderen tarafın içeriğidir (güvenilmez). `sandbox` CSP'si ve
  * nosniff ile döneriz; istemci de sandbox'lı iframe'de göstermelidir.
  */
-export const GET = withApiErrors(async function GET(
+export const GET = withNavigationErrorPage(withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ uuid: string }> },
 ) {
@@ -65,7 +66,8 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: resolved.error }, { status: resolved.status })
     }
     const provider = resolved.provider
-    const baseName = `Gelen_${incoming?.invoiceNo || uuid.slice(0, 8)}_GIB`
+    const docNo = incoming?.invoiceNo
+    const fallbackName = uuid.slice(0, 8)
 
     const pdf = await provider.getIncomingInvoicePdf(uuid)
     if (pdf.success) {
@@ -73,7 +75,7 @@ export const GET = withApiErrors(async function GET(
         status: 200,
         headers: {
           "Content-Type": "application/pdf",
-          "Content-Disposition": `inline; filename="${baseName}.pdf"`,
+          "Content-Disposition": inlineDisposition(documentFileName(docNo, fallbackName)),
           "Content-Length": String(pdf.pdfBuffer.length),
           "X-Kobipo-Doc-Format": "pdf",
           "Cache-Control": "no-store",
@@ -88,7 +90,7 @@ export const GET = withApiErrors(async function GET(
         status: 200,
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Content-Disposition": `inline; filename="${baseName}.html"`,
+          "Content-Disposition": inlineDisposition(documentFileName(docNo, fallbackName, "html")),
           // Gönderen içeriği güvenilmez: script/form/aynı-origin erişimi kapalı.
           "Content-Security-Policy": "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
           "X-Content-Type-Options": "nosniff",
@@ -123,4 +125,4 @@ export const GET = withApiErrors(async function GET(
       { status: 500 },
     )
   }
-})
+}))

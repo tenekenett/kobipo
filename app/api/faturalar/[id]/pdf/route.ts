@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyExport } from "@/lib/middleware/company"
 import { renderFaturaPdf } from "@/lib/pdf/documents/fatura-document"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic"
  * sabit yükseklikte ad 2 / adres 1 satıra kırpılıyordu. Regresyon testleri:
  * `lib/pdf/doc/fatura-pdf-fuzz.test.ts`.
  */
-export const GET = withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withNavigationErrorPage(withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -103,7 +104,7 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="Fatura_${invoice.invoiceNo}.pdf"`,
+        "Content-Disposition": inlineDisposition(documentFileName(invoice.eDocumentNo || invoice.invoiceNo, "fatura")),
       },
     })
   } catch (error: any) {
@@ -113,4 +114,4 @@ export const GET = withApiErrors(async function GET(request: Request, { params }
     console.error("Error generating PDF:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
-})
+}))

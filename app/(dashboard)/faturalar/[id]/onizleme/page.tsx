@@ -29,7 +29,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
-import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
+import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
 import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
@@ -272,14 +272,12 @@ export default function FaturaOnizlemePage() {
     // "PDF İndir": taslak sayfasındaki (editör) GİB düzeninde ön izleme PDF'inin
     // kaydedilmiş fatura sürümünü indirir. Resmî GİB PDF'i (ETTN'li) ayrı buton.
     // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
-    setIsDownloadingPreviewPdf(true)
     const idForPdf = invoice.id || invoiceId
     const companyQs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
-    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${idForPdf}/preview-pdf${companyQs}`, {
-      fallbackName: `${invoice.invoiceNo}.pdf`,
-    })
-    if (!r.ok) toast({ title: "PDF açılamadı", description: r.error, variant: "destructive" })
-    setIsDownloadingPreviewPdf(false)
+    if (!openPdfInNewTab(`/api/e-donusum/invoices/${idForPdf}/preview-pdf${companyQs}`)) return toast(PDF_TAB_BLOCKED)
+    // Kısa süre meşgul: çift tıklama iki sekme açmasın.
+    setIsDownloadingPreviewPdf(true)
+    setTimeout(() => setIsDownloadingPreviewPdf(false), 1500)
   }
 
   const handleCheckStatus = async () => {
@@ -310,24 +308,18 @@ export default function FaturaOnizlemePage() {
   const handleDownloadIncomingDoc = async () => {
     const inboxUuid = invoice?.incomingSource?.uuid
     if (!inboxUuid || !companyId) return
+    if (!openPdfInNewTab(`/api/e-donusum/inbox/${encodeURIComponent(inboxUuid)}/view?companyId=${encodeURIComponent(companyId)}`)) {
+      return toast(PDF_TAB_BLOCKED)
+    }
     setIsDownloadingIncomingDoc(true)
-    const r = await openPdfInNewTab(
-      `/api/e-donusum/inbox/${encodeURIComponent(inboxUuid)}/view?companyId=${encodeURIComponent(companyId)}`,
-      { fallbackName: `${invoice?.invoiceNo || inboxUuid}.pdf` },
-    )
-    if (!r.ok) toast({ title: "Belge açılamadı", description: r.error, variant: "destructive" })
-    setIsDownloadingIncomingDoc(false)
+    setTimeout(() => setIsDownloadingIncomingDoc(false), 1500)
   }
 
   const handleDownloadGibPdf = async () => {
     if (!invoice) return
+    if (!openPdfInNewTab(`/api/e-donusum/invoices/${invoice.id}/pdf`)) return toast(PDF_TAB_BLOCKED)
     setIsDownloadingGibPdf(true)
-    const r = await openPdfInNewTab(`/api/e-donusum/invoices/${invoice.id}/pdf`, {
-      fallbackName: `${invoice.eDocumentNo || invoice.invoiceNo}.pdf`,
-    })
-    if (!r.ok) toast({ title: "Resmî PDF açılamadı", description: r.error, variant: "destructive" })
-    else if (r.opened === "download") toast({ title: "Resmî PDF indirildi" })
-    setIsDownloadingGibPdf(false)
+    setTimeout(() => setIsDownloadingGibPdf(false), 1500)
   }
 
   const performCancelInvoice = async () => {

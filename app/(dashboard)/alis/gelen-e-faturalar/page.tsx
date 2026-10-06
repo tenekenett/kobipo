@@ -58,7 +58,7 @@ import {
 } from "@/lib/format"
 import { ExportButton } from "@/components/export/export-button"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
-import { openPdfInNewTab } from "@/lib/pdf/open-in-new-tab"
+import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
 
 interface IncomingRow {
   id: string
@@ -383,13 +383,12 @@ export default function GelenEFaturalarPage() {
   const handleDownloadPdf = async (uuid: string, invoiceNo: string | null) => {
     if (!companyId) return
     // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
+    if (!openPdfInNewTab(`/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(companyId)}`)) {
+      return toast(PDF_TAB_BLOCKED)
+    }
+    // Kısa süre meşgul: çift tıklama iki sekme açmasın.
     setDownloadingPdfUuid(uuid)
-    const r = await openPdfInNewTab(
-      `/api/e-donusum/inbox/${encodeURIComponent(uuid)}/pdf?companyId=${encodeURIComponent(companyId)}`,
-      { fallbackName: `${invoiceNo || uuid}.pdf` },
-    )
-    if (!r.ok) toast({ title: "PDF açılamadı", description: r.error, variant: "destructive" })
-    setDownloadingPdfUuid(null)
+    setTimeout(() => setDownloadingPdfUuid(null), 1500)
   }
 
   const handleRespond = async (

@@ -10,6 +10,7 @@ import {
   COMPANY_PROVIDER_SELECT,
 } from "@/lib/integrations/e-invoice/company-provider"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic"
  * Bu, lib/pdf/documents/fatura-document.ts'in ürettiği iç görünümden farklıdır —
  * yasal geçerliliği olan ve GİB UBL'sinden üretilmiş resmî dökümandır.
  */
-export const GET = withApiErrors(async function GET(
+export const GET = withNavigationErrorPage(withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -42,6 +43,7 @@ export const GET = withApiErrors(async function GET(
         companyId: true,
         uuid: true,
         invoiceNo: true,
+        eDocumentNo: true,
         invoiceType: true,
         status: true,
       },
@@ -93,14 +95,14 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: result.error }, { status: 502 })
     }
 
-    // GİB zip'inden gelen resmî belge adını kullan; yoksa iç fatura numarasına düş.
-    const rawName = result.filename?.trim() || `${invoice.invoiceNo}.pdf`
-    const filename = rawName.toLowerCase().endsWith(".pdf") ? rawName : `${rawName}.pdf`
+    // Dosya adı belgenin GİB numarası: Mysoft'un zip'teki adı ETTN'dir, müşteri için anlamsız.
+    const filename = documentFileName(invoice.eDocumentNo || invoice.invoiceNo, "fatura")
     return new NextResponse(new Uint8Array(result.pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        // inline: yeni sekmede görüntülensin (lib/api/pdf-response.ts).
+        "Content-Disposition": inlineDisposition(filename),
         "Content-Length": String(result.pdfBuffer.length),
         "Cache-Control": "no-store",
       },
@@ -116,4 +118,4 @@ export const GET = withApiErrors(async function GET(
       { status: 500 }
     )
   }
-})
+}))
