@@ -19,8 +19,12 @@ export const maxDuration = 60
  * koşum aynı faturayı iki kez göndermez; günlük çift-koşum kilidine (cron_runs) bu
  * yüzden gerek yok.
  *
- * Kimlik: `CRON_SECRET` / `BILLING_CRON_SECRET` (lib/billing/cron-auth.ts). Vercel Cron
- * GET ile çağırır; dış zamanlayıcı da aynı başlıkla POST edebilir.
+ * Tetik: GitHub Actions, 30 dakikada bir (.github/workflows/fatura-eposta.yml). Vercel
+ * Cron DEĞİL: Hobby planında cron günde birden sık olamaz. Giden mail bu uca bağlı
+ * değildir (belge GİB'e gidince hemen gider); burada yalnız kaçan/hata alanlar denenir.
+ * Gelen bildirim ise tamamen buna bağlıdır — Mysoft'ta "fatura geldi" webhook'u yok.
+ *
+ * Kimlik: `CRON_SECRET` / `BILLING_CRON_SECRET` (lib/billing/cron-auth.ts), GET ya da POST.
  */
 async function handle(request: Request) {
   if (!isCronAuthorized(request)) {

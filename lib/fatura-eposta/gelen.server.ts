@@ -126,6 +126,31 @@ async function kapat(ids: string[], notifyResult: string, notifyError: string | 
   })
 }
 
+/**
+ * Tazeliği geçmiş, hiç denenmemiş satırlar kuyruğa girmeden TOPLU kapanır (ESKI).
+ * Tek tek işlenselerdi yeni bağlanan firmanın ilk senkronu ya da elle "son 1 yıl"
+ * senkronu yüzlerce satırla kuyruğun önünü tıkardı (sıra createdAt'e göre, koşum başı
+ * `limit` grup); arkadaki GERÇEKTEN yeni fatura sırası gelene kadar tazeliği aşar ve
+ * hiç bildirilmeden ESKI kapanırdı. Ölçü `gelisZamani` ile aynı: sentDate ?? docDate ??
+ * createdAt. Denenmiş satır (notifyAttempts > 0) burada kapanmaz: kuyrukta HATA_SON olur.
+ */
+async function eskileriKapat(simdi: Date): Promise<number> {
+  const sinir = new Date(simdi.getTime() - GELEN_TAZELIK_SAAT * 3_600_000)
+  const r = await prisma.incomingInvoice.updateMany({
+    where: {
+      notifiedAt: null,
+      notifyAttempts: 0,
+      OR: [
+        { sentDate: { lt: sinir } },
+        { sentDate: null, docDate: { lt: sinir } },
+        { sentDate: null, docDate: null, createdAt: { lt: sinir } },
+      ],
+    },
+    data: { notifiedAt: simdi, notifyResult: "ESKI" },
+  })
+  return r.count
+}
+
 /** Gönderimler arasında en az 600 ms (Resend varsayılan sınırı saniyede 2 istek). */
 let sonGonderim = 0
 async function hizSinirli<T>(fn: () => Promise<T>): Promise<T> {
@@ -138,6 +163,7 @@ async function hizSinirli<T>(fn: () => Promise<T>): Promise<T> {
 export async function bekleyenGelenBildirimler(opts: { deadline: number; limit?: number }) {
   const limit = opts.limit ?? 40
   const stale = new Date(Date.now() - SAHIPLENME_ZAMAN_ASIMI_DK * 60_000)
+  const eskiKapanan = await eskileriKapat(new Date())
 
   const satirlar = await prisma.incomingInvoice.findMany({
     where: bekleyenWhere(stale),
@@ -182,7 +208,7 @@ export async function bekleyenGelenBildirimler(opts: { deadline: number; limit?:
     else gruplar.set(key, [s])
   }
 
-  const ozet = { aday: gruplar.size, gonderildi: 0, kopya: 0, eski: 0, kapali: 0, aliciYok: 0, hata: 0, kalan: 0 }
+  const ozet = { aday: gruplar.size, gonderildi: 0, kopya: 0, eski: eskiKapanan, kapali: 0, aliciYok: 0, hata: 0, kalan: 0 }
   const baseUrl = appBaseUrl()
 
   const isle = async (grup: typeof satirlar) => {

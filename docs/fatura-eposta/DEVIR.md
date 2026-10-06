@@ -90,7 +90,40 @@ paketler yeniden koşuldu). Gerçek mail gönderimi ve migrasyonlu uçtan uca de
 - **Anahtarlar:** `Company.invoiceEmailAuto`, `Company.incomingEmailNotify` (varsayılan açık),
   Ayarlar → E-Dönüşüm → "Fatura e-postaları" (şubede de görünür). Elle gönderim anahtara bakmaz.
 
-## ▶ DEVAM — kalan işler (sırayla)
+## ▶ DURUM — 2026-10-06 akşam (ikinci oturum)
+
+Yapıldı:
+- Migrasyon canlıda (kullanıcı uyguladı). Doğrulandı: 419 giden e-belge + 2.390 gelen satır
+  `BASLANGIC`, `invoice_email_logs` RLS açık; `prisma generate` yapıldı.
+- **Tetik kararı: GitHub Actions, 30 dk** (`.github/workflows/fatura-eposta.yml`, :07/:37).
+  Kullanıcı Supabase'e bağımlı olmak istemedi; repo private'a alınacak → Actions kotası
+  2.000 dk/ay, her koşum ≥1 dk → 30 dk (~1.440 dk/ay). Log yalnız sayıları basar.
+- Gelen kuyruğu tıkanması düzeltildi: tazeliği geçmiş satırlar `eskileriKapat` ile toplu kapanır.
+- Mysoft `email1` gönderilmiyor → Mysoft tarafından çift mail riski yok (swagger'da
+  `NotificationSettingsModel.isSendDocumentMail` var; email1 gönderilirse risk doğar).
+- Mysoft'ta webhook yok (swagger-v8 tarandı) → gelen için anlık tetik mümkün değil.
+- CLAUDE.md'ye "Fatura e-postası" bölümü yazıldı.
+
+Kalan:
+1. **GitHub sırrı (kullanıcı):** repo → Settings → Secrets and variables → Actions →
+   `CRON_SECRET` = Vercel'deki `CRON_SECRET` değeri. Workflow yalnız main'den çalışır.
+2. **Ölçüm — Mysoft test ortamı (`edocumentapi.mytest.tr`) 2026-10-06 19:40'tan beri zaman
+   aşımında.** Açılınca: `--giden=cmulg4a1s000112k041nqz6uj` (göndermez), sonra kullanıcının
+   onayladığı adrese (hesap e-postası) `--gonder --to=…`; `--gelen`.
+3. main'e birleştir + push → Vercel dağıtımı. Dağıtımla birlikte giden e-belgeler müşterilere
+   otomatik mail atmaya başlar (migrasyon ile dağıtım arasında kesilenler dahil, 7 gün pencere).
+   Sonra Actions'ta "Run workflow" ile elle bir koşum.
+4. Öneriler (onay yok): fatura editöründe "carinin e-postası yok" uyarısı; gelen listede
+   "bildirildi" bilgisi.
+5. `PUT /api/companies/[id]` alan silme — kullanıcıya raporlandı, karar bekliyor
+   (veri: onboarding'li 31 firmanın 18'inde sektör boş; Seri No ekranı tek alanlı gövde yolluyor).
+6. Spam riski (kobipo.com Gmail itibarı) — kullanıcıya söylendi.
+
+---
+
+### (Eski) DEVAM listesi — ilk oturum
+
+#### Kalan işler (ilk oturumdaki hâli)
 
 1. **Migrasyonu canlıya uygula (kullanıcı çalıştırır):**
    `node scripts/apply-migration.js supabase/migrations/20261006000002_fatura_eposta.sql`
