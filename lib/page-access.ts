@@ -935,6 +935,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // e-Dönüşüm kurulum/keşif uçları: entegratör bağlantısını kuran ayar ekranına aittir.
   // Hepsi POST'tur ama "veri yazma" değil "ayar bağlama" işidir; yine de tek sahibi var.
   { prefix: "/api/e-donusum/onboarding", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
+  // Fatura e-postası anahtarları (giden otomatik mail / gelen bildirimi) — lib/fatura-eposta/.
+  { prefix: "/api/e-donusum/eposta-ayarlari", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
   { prefix: "/api/e-donusum/discover-", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
   { prefix: "/api/e-donusum/verify-tenant-vkn", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },
   { prefix: "/api/test-mysoft", pages: ["/ayarlar/e-donusum"], writePages: ["/ayarlar/e-donusum"] },

@@ -328,6 +328,15 @@ model Company {
   // Arşiv SİLME DEĞİLDİR: fatura/e-fatura/defter kayıtları VUK gereği saklanır. Silme
   // yalnız kullanıcının açık talebiyle, elle yapılır.
   archivedAt                   DateTime?
+  // FATURA E-POSTASI (2026-10-06, lib/fatura-eposta/). İki ayrı anahtar, ikisi de
+  // varsayılan AÇIK:
+  //  - invoiceEmailAuto: GİB'e giden e-Fatura/e-Arşiv carinin e-postası kayıtlıysa
+  //    PDF + XML ekli olarak ona gönderilir.
+  //  - incomingEmailNotify: gelen her e-fatura hesabı açan kişinin giriş e-postasına
+  //    tek tek bildirilir.
+  // Firma bazındadır (şube kendi anahtarını taşır); hesap kapsamlı değildir.
+  invoiceEmailAuto             Boolean            @default(true)
+  incomingEmailNotify          Boolean            @default(true)
   // İşletmenin haftalık açılış saati. Vardiya takviminde hem en üstteki "Açılış
   // saati" satırını hem de personel satırlarının arkasındaki gölge bandı çizer:
   // "işletme açık ama kimse yok" boşluğu ancak bu bantla görünür hale geliyor.
@@ -1731,6 +1740,8 @@ model Invoice {
   // (SetNull): e-belge zaten gönderilmiş olabilir, no/tarih ayrı sütunlarda durur.
   returnOf            Invoice?          @relation("InvoiceReturns", fields: [returnOfInvoiceId], references: [id], onDelete: SetNull)
   returns             Invoice[]         @relation("InvoiceReturns")
+  // Faturanın alıcıya e-postayla gönderim kayıtları (otomatik + elle). lib/fatura-eposta/
+  emailLogs           InvoiceEmailLog[]
   // Bu fiş bir adisyonun kapanışıysa buradan geriye bakılır (Aşama 2).
   restaurantTicket    RestaurantTicket?
   // Kobipo'nun KENDİ satışının faturasıysa (kontör / paket-abonelik) siparişe geri bağ.
@@ -3062,6 +3073,16 @@ model IncomingInvoice {
   // Kobipo iç akışı:
   isLinkedToPurchase Boolean   @default(false) // Alış faturasına dönüştürüldü mü
   linkedInvoiceId    String? // İlişkili Kobipo Invoice (alış) id'si
+  // E-POSTA BİLDİRİMİ (lib/fatura-eposta/gelen.server.ts). notifiedAt doluysa satır
+  // bildirim açısından KAPANMIŞTIR; sonuç notifyResult'ta: GONDERILDI | KOPYA (aynı
+  // hesapta aynı ETTN başka firma satırından bildirildi — şube ana firmanın gelen
+  // kutusunu paylaşır) | ESKI (geldiğinde tazelik süresi dolmuştu: geçmiş senkronu) |
+  // ALICI_YOK | KAPALI | HATA (deneme hakkı bitti) | BASLANGIC (özellik açılmadan önce
+  // vardı). GONDERILIYOR = sahiplenildi; süreç ölürse zaman aşımıyla yeniden denenir.
+  notifiedAt         DateTime?
+  notifyResult       String?
+  notifyAttempts     Int       @default(0)
+  notifyError        String?
   raw                Json // Mysoft ham yanıtı (item objesi)
   syncedAt           DateTime  @default(now())
   createdAt          DateTime  @default(now())
@@ -3073,7 +3094,39 @@ model IncomingInvoice {
   @@index([companyId, docDate])
   @@index([companyId, sentDate])
   @@index([companyId, status])
+  @@index([notifiedAt])
   @@map("incoming_invoices")
+}
+
+// FATURA E-POSTA KAYDI — giden e-belgenin alıcıya e-postayla gönderimi
+// (lib/fatura-eposta/giden.server.ts). Her gönderim bir satırdır.
+//
+// OTOMATİK gönderim fatura başına TEKTİR: `autoKey` = invoiceId (elle gönderimde null).
+// Benzersiz kısıt sahiplenmedir — gönderimden hemen sonraki deneme ile tarama aynı anda
+// koşsa bile ikinci satır yazılamaz, müşteri iki mail almaz.
+// Durumlar: GONDERILIYOR (sahiplenildi) | GONDERILDI | HATA (yeniden denenir, `attempts`)
+// | ALICI_YOK (carinin geçerli e-postası yok) | KAPALI (firma anahtarı kapalı) |
+// BASLANGIC (özellik açılmadan önce GİB'e gitmiş belge — geriye dönük mail atılmaz).
+model InvoiceEmailLog {
+  id        String   @id @default(cuid())
+  companyId String
+  invoiceId String
+  autoKey   String?  @unique
+  kind      String // AUTO | MANUAL
+  recipient String?
+  status    String
+  error     String?
+  messageId String?
+  attempts  Int      @default(0)
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, createdAt])
+  @@index([status, updatedAt])
+  @@map("invoice_email_logs")
 }
 
 // ---------------------------------------------------------------------------

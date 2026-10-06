@@ -25,11 +25,34 @@ export const EMAIL_FROM =
  */
 export const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "destek@kobipo.com"
 
+export type EmailAttachment = {
+  filename: string
+  content: Buffer
+  contentType?: string
+}
+
 export type SendEmailParams = {
   to: string | string[]
   subject: string
   html: string
   replyTo?: string | string[]
+  /**
+   * Gönderen GÖRÜNEN ADI (adres değişmez, EMAIL_FROM'unki kalır). Fatura e-postası
+   * firmanın adıyla gider: müşterinin müşterisi "Kobipo"dan değil satıcısından fatura
+   * beklediği için tanımadığı bir ad hem güveni hem teslim oranını düşürür.
+   */
+  fromName?: string
+  /** Yalnız tekli gönderimde: Resend'in toplu ucu ek kabul etmez. */
+  attachments?: EmailAttachment[]
+}
+
+/** EMAIL_FROM'un adresini koruyup görünen adı değiştirir: `"Ad" <adres>`. */
+export function fromWithName(name: string | undefined, base: string = EMAIL_FROM): string {
+  const cleaned = (name || "").replace(/["<>\\\r\n]/g, " ").replace(/\s+/g, " ").trim().slice(0, 70)
+  if (!cleaned) return base
+  const match = base.match(/<([^>]+)>/)
+  const address = match ? match[1] : base.trim()
+  return `"${cleaned}" <${address}>`
 }
 
 export type SendEmailResult = {
@@ -70,7 +93,7 @@ export async function sendEmailBatch(
     try {
       const { error } = await resend.batch.send(
         chunk.map((m) => ({
-          from: EMAIL_FROM,
+          from: fromWithName(m.fromName),
           to: m.to,
           subject: m.subject,
           html: m.html,
@@ -96,6 +119,8 @@ export async function sendEmail({
   subject,
   html,
   replyTo,
+  fromName,
+  attachments,
 }: SendEmailParams): Promise<SendEmailResult> {
   if (!resend) {
     console.warn(
@@ -107,11 +132,20 @@ export async function sendEmail({
 
   try {
     const { data, error } = await resend.emails.send({
-      from: EMAIL_FROM,
+      from: fromWithName(fromName),
       to,
       subject,
       html,
       replyTo: replyTo ?? EMAIL_REPLY_TO,
+      ...(attachments?.length
+        ? {
+            attachments: attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content,
+              ...(a.contentType ? { contentType: a.contentType } : {}),
+            })),
+          }
+        : {}),
     })
 
     if (error) {

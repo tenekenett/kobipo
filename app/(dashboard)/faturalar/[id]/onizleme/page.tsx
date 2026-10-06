@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2, Printer, Copy, MoreVertical, Tag } from "lucide-react"
+import { Download, ArrowLeft, Pencil, ShieldCheck, FileDown, Ban, Loader2, CheckCircle2, XCircle, Clock, AlertTriangle, Hash, Building2, Trash2, Printer, Copy, MoreVertical, Tag, Mail } from "lucide-react"
 import Link from "next/link"
 import {
   DropdownMenu,
@@ -130,6 +130,24 @@ interface Invoice {
   }>
 }
 
+/** Faturanın e-posta durumu — GET /api/faturalar/[id]/email (lib/fatura-eposta/). */
+type EmailLog = {
+  id: string
+  kind: "AUTO" | "MANUAL"
+  status: string
+  recipient: string | null
+  error: string | null
+  attempts: number
+  createdAt: string
+  updatedAt: string
+}
+type EmailInfo = {
+  sendable: boolean
+  reason: string | null
+  defaultRecipient: string | null
+  logs: EmailLog[]
+}
+
 export default function FaturaOnizlemePage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -143,6 +161,9 @@ export default function FaturaOnizlemePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [email, setEmail] = useState("")
+  const [emailInfo, setEmailInfo] = useState<EmailInfo | null>(null)
+  const [isSendingEmail, setIsSendingEmail] = useState(false)
+  const emailPollRef = useRef(0)
   const [attachments, setAttachments] = useState<any[]>([])
   const [attachmentName, setAttachmentName] = useState("")
   const [isCheckingStatus, setIsCheckingStatus] = useState(false)
@@ -585,17 +606,66 @@ export default function FaturaOnizlemePage() {
     }
   }
 
-  const handleSendEmail = async () => {
-    const response = await fetch(`/api/faturalar/${invoiceId}/email`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    })
-    if (!response.ok) {
-      toast({ title: "E-posta gönderilemedi", variant: "destructive" })
+  const fetchEmailInfo = async () => {
+    const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+    const response = await fetch(`/api/faturalar/${invoiceId}/email${qs}`)
+    if (response.ok) setEmailInfo(await response.json())
+  }
+
+  // GİB'e gitmiş belgede e-posta durumu okunur. Otomatik mail belge gittikten SONRA arka
+  // planda gönderilir (birkaç saniye): kayıt henüz yoksa ya da "gönderiliyor"daysa kısa
+  // aralıklarla birkaç kez yeniden bakılır.
+  useEffect(() => {
+    emailPollRef.current = 0
+    if (!invoice?.id || invoice.status !== "SENT") {
+      setEmailInfo(null)
       return
     }
-    toast({ title: "E-posta gönderimi kuyruğa alındı" })
+    void fetchEmailInfo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoice?.id, invoice?.status])
+
+  useEffect(() => {
+    if (!emailInfo?.sendable) return
+    const latest = emailInfo.logs[0]
+    const pending = !latest || latest.status === "GONDERILIYOR"
+    if (!pending || emailPollRef.current >= 5) return
+    const t = setTimeout(() => {
+      emailPollRef.current += 1
+      void fetchEmailInfo()
+    }, 4000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailInfo])
+
+  const handleSendEmail = async () => {
+    setIsSendingEmail(true)
+    try {
+      const response = await fetch(`/api/faturalar/${invoiceId}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() || undefined, companyId }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        toast({
+          title: "E-posta gönderilemedi",
+          description: data.error || `Sunucu hatası (${response.status})`,
+          variant: "destructive",
+        })
+        return
+      }
+      toast({
+        title: "E-posta gönderildi",
+        description: Array.isArray(data.to) ? data.to.join(", ") : undefined,
+      })
+      setEmail("")
+    } catch (e: any) {
+      toast({ title: "E-posta gönderilemedi", description: e?.message, variant: "destructive" })
+    } finally {
+      setIsSendingEmail(false)
+      void fetchEmailInfo()
+    }
   }
 
   const createAttachment = async () => {
@@ -932,21 +1002,39 @@ export default function FaturaOnizlemePage() {
               {/* Salt-okunur yetkide menüde yalnız "Yazdır" kalır: e-posta göndermek,
                   GİB durumu çekmek (belgenin iç durumunu günceller), iptal ve sil
                   hepsi yazma işlemidir. */}
-              <WriteAction>
-                <div className="flex items-center gap-2 px-2 py-1.5">
-                  <Input
-                    className="h-8"
-                    placeholder="E-posta (opsiyonel)"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onKeyDown={(e) => e.stopPropagation()}
-                  />
-                  <Button size="sm" variant="outline" onClick={handleSendEmail}>
-                    Gönder
-                  </Button>
-                </div>
-                <DropdownMenuSeparator />
-              </WriteAction>
+              {/* E-postayla gönder: yalnız GİB'e gitmiş e-belgede (resmî PDF + XML ekli).
+                  Boş bırakılırsa carinin kartındaki adrese gider. */}
+              {emailInfo?.sendable && (
+                <WriteAction>
+                  <div className="space-y-1.5 px-2 py-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">E-postayla gönder</p>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="h-8"
+                        type="email"
+                        placeholder={emailInfo.defaultRecipient || "alici@firma.com"}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleSendEmail}
+                        disabled={isSendingEmail || (!email.trim() && !emailInfo.defaultRecipient)}
+                      >
+                        {isSendingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : "Gönder"}
+                      </Button>
+                    </div>
+                    {!emailInfo.defaultRecipient && (
+                      <p className="text-[11px] leading-snug text-muted-foreground">
+                        Carinin kartında e-posta yok; adres yazın.
+                      </p>
+                    )}
+                  </div>
+                  <DropdownMenuSeparator />
+                </WriteAction>
+              )}
               <DropdownMenuItem className="cursor-pointer" onClick={() => window.print()}>
                 <Printer className="mr-2 h-4 w-4" />
                 Yazdır
@@ -1051,6 +1139,34 @@ export default function FaturaOnizlemePage() {
               ETTN: {invoice.uuid}
             </span>
           )}
+          {(() => {
+            // E-posta durumu: son kayıt. Gidemediyse sebebiyle görünür — sessiz geçilmez.
+            const latest = emailInfo?.sendable ? emailInfo.logs[0] : undefined
+            if (!latest) return null
+            const when = new Date(latest.updatedAt).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" })
+            const view =
+              latest.status === "GONDERILDI"
+                ? { wrap: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300", text: `E-posta: ${latest.recipient}`, title: `${when} gönderildi${latest.error ? ` · ${latest.error}` : ""}` }
+                : latest.status === "GONDERILIYOR"
+                ? { wrap: "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300", text: "E-posta gönderiliyor…", title: when }
+                : latest.status === "HATA"
+                ? { wrap: "border-red-300 bg-red-50 text-red-800 dark:bg-red-500/15 dark:text-red-300", text: "E-posta gönderilemedi", title: `${latest.error || ""} (${latest.attempts}. deneme, ${when})` }
+                : latest.status === "ALICI_YOK"
+                ? { wrap: "border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300", text: "E-posta gitmedi: alıcı adresi yok", title: latest.error || "" }
+                : latest.status === "KAPALI"
+                ? { wrap: "border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300", text: "Otomatik e-posta kapalı", title: latest.error || "" }
+                : null
+            if (!view) return null
+            return (
+              <span
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium ${view.wrap}`}
+                title={view.title}
+              >
+                <Mail className="h-4 w-4 shrink-0" />
+                <span className="truncate">{view.text}</span>
+              </span>
+            )
+          })()}
         </div>
       )}
 
