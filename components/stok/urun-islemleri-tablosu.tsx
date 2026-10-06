@@ -80,7 +80,7 @@ const COLUMNS: Column[] = [
   { key: "date", label: "İşlem Tarihi" },
   { key: "party", label: "Firma" },
   { key: "waybill", label: "İrsaliye No" },
-  { key: "eDocumentNo", label: "Belge No" },
+  { key: "recordNo", label: "Kayıt No" },
   { key: "shipment", label: "Sevk Tarihi" },
   { key: "payment", label: "Ödeme Tipi" },
   { key: "quantity", label: "Miktar", align: "right" },
@@ -178,7 +178,7 @@ export function UrunIslemleriTablosu({
         fmtDay(row.date),
         row.counterpartyName,
         row.waybillNos,
-        row.eDocumentNo,
+        row.recordNo,
         fmtDay(row.shipmentDate),
         row.paymentLabel,
         `${fmtQty(row.quantity)} ${row.unit}`.trim(),
@@ -398,7 +398,7 @@ export function UrunIslemleriTablosu({
                           </span>
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs">{row.waybillNos || "—"}</TableCell>
-                        <TableCell className="whitespace-nowrap font-mono text-xs">{row.eDocumentNo || "—"}</TableCell>
+                        <TableCell className="whitespace-nowrap font-mono text-xs">{row.recordNo || "—"}</TableCell>
                         <TableCell className="whitespace-nowrap tabular-nums">{fmtDay(row.shipmentDate) || "—"}</TableCell>
                         <TableCell className="whitespace-nowrap">{row.paymentLabel || "—"}</TableCell>
                         <TableCell className="whitespace-nowrap text-right tabular-nums">

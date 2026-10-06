@@ -101,9 +101,17 @@ describe("satır", () => {
     expect(invoiceLineToRow(invoiceLine()).shipmentDate).toBeNull()
   })
 
-  it("e-belge no fatura no ile aynıysa tekrar basılmaz", () => {
-    expect(invoiceLineToRow(invoiceLine({ eDocumentNo: "SAT-2026-0001" })).eDocumentNo).toBe("")
-    expect(invoiceLineToRow(invoiceLine({ eDocumentNo: "KBP2026000000012" })).eDocumentNo).toBe("KBP2026000000012")
+  it("Fatura No e-belgenin orijinal (GİB) numarasıdır; Kobipo numarası Kayıt No'ya düşer", () => {
+    const eBelge = invoiceLineToRow(invoiceLine({ eDocumentNo: "KBP2026000000012" }))
+    expect(eBelge.documentNo).toBe("KBP2026000000012")
+    expect(eBelge.recordNo).toBe("SAT-2026-0001")
+  })
+
+  it("e-belge numarası yoksa ya da aynıysa Fatura No Kobipo numarasıdır, Kayıt No boş kalır", () => {
+    const manuel = invoiceLineToRow(invoiceLine())
+    expect(manuel.documentNo).toBe("SAT-2026-0001")
+    expect(manuel.recordNo).toBe("")
+    expect(invoiceLineToRow(invoiceLine({ eDocumentNo: "SAT-2026-0001" })).recordNo).toBe("")
   })
 
   it("irsaliye satırında fiyat ve ödeme yoktur", () => {

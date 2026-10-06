@@ -31,9 +31,15 @@ export type ProductTransactionRow = {
   isReceipt: boolean
   /** İrsaliye satırında hangi irsaliye listesi (SALES/PURCHASE). */
   waybillType: string | null
+  /**
+   * "Fatura No": belgenin ORİJİNAL numarası — e-belgede GİB numarası (ADM2026000000001),
+   * yoksa Kobipo numarası. Uygulamanın her yerindeki `eDocumentNo || invoiceNo` kuralı
+   * (fatura listesi, cari ekstre, stok hareket raporu); 2026-10-06'ya kadar ürün kartı
+   * burada Kobipo'nun iç numarasını (SAT-2026-0001) basıyordu.
+   */
   documentNo: string
-  /** e-Belge (GİB) numarası; yoksa boş. */
-  eDocumentNo: string
+  /** "Kayıt No": Kobipo'nun iç numarası — yalnız Fatura No'dan farklıysa, yoksa boş. */
+  recordNo: string
   date: string
   counterpartyKind: "customer" | "supplier" | null
   /** Cari kartının adresi (slug ya da id); carisiz belgede null. */
@@ -163,8 +169,8 @@ export function invoiceLineToRow(line: InvoiceLineSource): ProductTransactionRow
     documentId: inv.id,
     isReceipt: inv.isReceipt,
     waybillType: null,
-    documentNo: inv.invoiceNo,
-    eDocumentNo: inv.eDocumentNo && inv.eDocumentNo !== inv.invoiceNo ? inv.eDocumentNo : "",
+    documentNo: inv.eDocumentNo || inv.invoiceNo,
+    recordNo: inv.eDocumentNo && inv.eDocumentNo !== inv.invoiceNo ? inv.invoiceNo : "",
     date: inv.date.toISOString(),
     counterpartyKind: party.kind,
     counterpartyRef: party.ref,
@@ -194,7 +200,7 @@ export function waybillLineToRow(line: WaybillLineSource): ProductTransactionRow
     isReceipt: false,
     waybillType: w.type,
     documentNo: w.waybillNo,
-    eDocumentNo: "",
+    recordNo: "",
     date: w.date.toISOString(),
     counterpartyKind: party.kind,
     counterpartyRef: party.ref,
@@ -228,7 +234,7 @@ export type TransactionSortKey =
   | "documentNo"
   | "party"
   | "waybill"
-  | "eDocumentNo"
+  | "recordNo"
   | "shipment"
   | "payment"
   | "quantity"
@@ -241,7 +247,7 @@ export const TRANSACTION_SORT_KEYS: TransactionSortKey[] = [
   "documentNo",
   "party",
   "waybill",
-  "eDocumentNo",
+  "recordNo",
   "shipment",
   "payment",
   "quantity",
@@ -265,8 +271,8 @@ const sortValue = (row: ProductTransactionRow, key: TransactionSortKey): string 
       return row.counterpartyName
     case "waybill":
       return row.waybillNos
-    case "eDocumentNo":
-      return row.eDocumentNo
+    case "recordNo":
+      return row.recordNo
     case "shipment":
       return row.shipmentDate
     case "payment":
@@ -314,6 +320,6 @@ export function filterTransactions(
   matches: (...values: Array<string | null | undefined>) => boolean,
 ): ProductTransactionRow[] {
   return rows.filter((row) =>
-    matches(row.documentNo, row.eDocumentNo, row.counterpartyName, row.typeLabel, row.waybillNos, row.paymentLabel, row.statusTag),
+    matches(row.documentNo, row.recordNo, row.counterpartyName, row.typeLabel, row.waybillNos, row.paymentLabel, row.statusTag),
   )
 }

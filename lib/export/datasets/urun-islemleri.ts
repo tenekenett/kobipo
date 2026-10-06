@@ -56,7 +56,7 @@ export async function buildProductTransactionsDataset(params: {
     { key: "date", label: "İşlem Tarihi", type: "date", width: 22 },
     { key: "counterpartyName", label: "Firma" },
     { key: "waybillNos", label: "İrsaliye No", width: 28 },
-    { key: "eDocumentNo", label: "Belge No", width: 32 },
+    { key: "recordNo", label: "Kayıt No", width: 32 },
     { key: "shipmentDate", label: "Sevk Tarihi", type: "date", width: 22 },
     { key: "paymentLabel", label: "Ödeme Tipi", width: 28 },
     { key: "quantity", label: "Miktar", type: "qty", width: 18 },
