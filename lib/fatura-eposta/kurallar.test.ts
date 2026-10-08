@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  epostaKapsamindakiTur,
   faturaEpostaAdresi,
+  gelenBildirimGorunumu,
   gelenBildirimKarari,
   gelenBildirimSiniri,
   gelisZamani,
@@ -75,6 +77,15 @@ describe("gidenGonderilebilir", () => {
     expect(gidenGonderilebilir({ ...temel, status: "GIB_DRAFT" }).ok).toBe(false)
     expect(gidenGonderilebilir({ ...temel, uuid: null }).ok).toBe(false)
   })
+
+  it("editörün sorduğu tür kapısı durumdan bağımsızdır, gönderim kapısıyla aynı türleri ayıklar", () => {
+    // Taslak (henüz GİB'e gitmemiş) satış e-belgesi: tür kapsamda, gönderim kapısı henüz değil.
+    expect(epostaKapsamindakiTur({ ...temel, status: "DRAFT" } as never)).toEqual({ ok: true })
+    for (const degisik of [{ type: "PURCHASE" }, { isReceipt: true }, { invoiceType: "MANUAL" }]) {
+      const belge = { ...temel, ...degisik }
+      expect(epostaKapsamindakiTur(belge)).toEqual(gidenGonderilebilir(belge))
+    }
+  })
 })
 
 describe("gelen bildirim", () => {
@@ -135,5 +146,48 @@ describe("hesapKurucusu", () => {
   it("aday yoksa null", () => {
     expect(hesapKurucusu([u("sa", 1, true)])).toBeNull()
     expect(hesapKurucusu([])).toBeNull()
+  })
+})
+
+describe("gelenBildirimGorunumu", () => {
+  const simdi = new Date("2026-10-08T12:00:00Z")
+  const baslangic = new Date("2026-10-06T17:50:00Z")
+  const taze = new Date("2026-10-08T09:00:00Z")
+  const g = (r: Partial<Parameters<typeof gelenBildirimGorunumu>[0]>) =>
+    gelenBildirimGorunumu({ notifyResult: null, notifiedAt: null, gelis: taze, ...r }, simdi, baslangic)
+
+  it("gönderilen ve kopya satır 'Bildirildi'", () => {
+    expect(g({ notifyResult: "GONDERILDI", notifiedAt: "2026-10-08T11:00:00Z" })?.ton).toBe("ok")
+    expect(g({ notifyResult: "KOPYA", notifiedAt: "2026-10-08T11:00:00Z" })?.metin).toBe("Bildirildi")
+  })
+
+  it("bildirim söz konusu olmayan satırda hiçbir şey gösterilmez", () => {
+    expect(g({ notifyResult: "BASLANGIC", notifiedAt: "2026-10-06T17:50:00Z" })).toBeNull()
+    expect(g({ notifyResult: "ESKI", notifiedAt: "2026-10-08T11:00:00Z" })).toBeNull()
+    // Henüz kapanmamış ama tazelik sınırının gerisinde: sıradaki tarama ESKI kapatacak.
+    expect(g({ gelis: new Date("2026-10-01T09:00:00Z") })).toBeNull()
+    // Başlangıçtan önce gelmiş (tazelik içinde olsa da).
+    expect(g({ gelis: new Date("2026-10-06T12:00:00Z") })).toBeNull()
+    // Canlı (Mysoft) moddaki satır: alan hiç yok.
+    expect(gelenBildirimGorunumu({ notifyResult: undefined, notifiedAt: undefined, gelis: taze }, simdi, baslangic)).toBeNull()
+  })
+
+  it("taze ve kapanmamış satır bekliyor", () => {
+    expect(g({})?.metin).toBe("Bildirim bekliyor")
+    expect(g({ notifyResult: "GONDERILIYOR", notifiedAt: "2026-10-08T11:59:00Z" })?.ton).toBe("bekliyor")
+  })
+
+  it("hata: deneme sürüyorsa bekliyor, hak bittiyse hata — sebep gizlenmez", () => {
+    const suruyor = g({ notifyResult: "HATA", notifyError: "SMTP 451" })
+    expect(suruyor?.ton).toBe("bekliyor")
+    expect(suruyor?.aciklama).toContain("SMTP 451")
+    const bitti = g({ notifyResult: "HATA", notifiedAt: "2026-10-08T11:00:00Z", notifyError: "SMTP 451" })
+    expect(bitti?.ton).toBe("hata")
+    expect(bitti?.aciklama).toContain("SMTP 451")
+  })
+
+  it("alıcı yok hata, anahtar kapalı pasif", () => {
+    expect(g({ notifyResult: "ALICI_YOK", notifiedAt: "2026-10-08T11:00:00Z" })?.ton).toBe("hata")
+    expect(g({ notifyResult: "KAPALI", notifiedAt: "2026-10-08T11:00:00Z" })?.ton).toBe("pasif")
   })
 })

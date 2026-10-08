@@ -63,6 +63,10 @@ export const INCOMING_LIST_SELECT = {
   isLinkedToPurchase: true,
   linkedInvoiceId: true,
   syncedAt: true,
+  // E-posta bildirimi (lib/fatura-eposta/kurallar.ts → gelenBildirimGorunumu).
+  notifyResult: true,
+  notifiedAt: true,
+  notifyError: true,
 } as const
 
 /**

@@ -46,6 +46,7 @@ import {
   AlertTriangle,
   CalendarRange,
   X,
+  Mail,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -59,6 +60,7 @@ import {
 import { ExportButton } from "@/components/export/export-button"
 import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
 import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
+import { gelenBildirimGorunumu, type GelenBildirimGorunumu } from "@/lib/fatura-eposta/kurallar"
 
 interface IncomingRow {
   id: string
@@ -79,6 +81,39 @@ interface IncomingRow {
   isLinkedToPurchase: boolean
   linkedInvoiceId: string | null
   syncedAt: string
+  // E-posta bildirimi — yalnız DB kaynağında gelir (Mysoft canlı modunda alan yok).
+  notifyResult?: string | null
+  notifiedAt?: string | null
+  notifyError?: string | null
+}
+
+const BILDIRIM_TONU: Record<GelenBildirimGorunumu["ton"], string> = {
+  ok: "text-emerald-700 dark:text-emerald-400",
+  hata: "text-red-700 dark:text-red-400",
+  bekliyor: "text-amber-700 dark:text-amber-400",
+  pasif: "text-muted-foreground",
+}
+
+/** Gelen faturanın hesap sahibine e-postayla bildirilip bildirilmediği (Senkron hücresinde). */
+function BildirimSatiri({ row }: { row: IncomingRow }) {
+  const g = gelenBildirimGorunumu(
+    {
+      notifyResult: row.notifyResult,
+      notifiedAt: row.notifiedAt,
+      notifyError: row.notifyError,
+      gelis: new Date(row.sentDate ?? row.date ?? row.syncedAt),
+    },
+    new Date(),
+  )
+  if (!g) return null
+  // `relative`: hücre satır bağlantısının kaplamasını taşıyor (styled-table); konumlanmamış
+  // içerik kaplamanın ALTINDA kalır ve açıklama (title) hiç görünmezdi.
+  return (
+    <div className={`relative mt-0.5 flex w-fit items-center gap-1 ${BILDIRIM_TONU[g.ton]}`} title={g.aciklama}>
+      <Mail className="h-3 w-3 shrink-0" />
+      <span>{g.metin}</span>
+    </div>
+  )
 }
 
 const fmtCurrency = (v: string | number | null, ccy = "TRY") =>
@@ -971,7 +1006,7 @@ export default function GelenEFaturalarPage() {
                   <StyledTableHead className="text-right">KDV</StyledTableHead>
                   <StyledTableHead className="text-right">Tutar</StyledTableHead>
                   <StyledTableHead>Durum</StyledTableHead>
-                  <StyledTableHead>Senkronize</StyledTableHead>
+                  <StyledTableHead>Senkron · Bildirim</StyledTableHead>
                   <StyledTableHead className="text-right">İşlem</StyledTableHead>
                 </StyledTableHeaderRow>
               </TableHeader>
@@ -1115,6 +1150,7 @@ export default function GelenEFaturalarPage() {
                         </TableCell>
                         <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
                           {fmtDateTime(row.syncedAt)}
+                          <BildirimSatiri row={row} />
                         </TableCell>
                         {/* Aksiyon hücresi bağlantı kaplamasının dışında. */}
                         <TableCell data-row-link-skip className="text-right" onClick={(e) => e.stopPropagation()}>

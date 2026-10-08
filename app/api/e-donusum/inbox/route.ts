@@ -230,6 +230,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
           isLinkedToPurchase: r.isLinkedToPurchase,
           linkedInvoiceId: r.linkedInvoiceId,
           syncedAt: r.syncedAt.toISOString(),
+          notifyResult: r.notifyResult,
+          notifiedAt: r.notifiedAt ? r.notifiedAt.toISOString() : null,
+          notifyError: r.notifyError,
         })),
       })
     }

@@ -58,6 +58,8 @@ export const GET = withApiErrors(async function GET(
         eArchivePrefix: true,
         eFaturaBackdatePrefix: true,
         eArchiveBackdatePrefix: true,
+        // Fatura editörü: GİB'e gidince otomatik mail gidecek mi (carinin adresi uyarısı).
+        invoiceEmailAuto: true,
         eDonusumTenantVkn: true,
         // Bayi self-servis onboarding durumu (docs/e-donusum-onboarding/PLAN.md)
         eDonusumOnboardingStatus: true,

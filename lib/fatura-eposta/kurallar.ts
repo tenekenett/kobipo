@@ -115,17 +115,29 @@ export type GidenBelge = {
 }
 
 /**
+ * Belgenin TÜRÜ e-postayla gönderilebilir mi (durumdan bağımsız). Fatura editörü de bunu
+ * sorar: GİB'e gidince otomatik mail alacak belgede carinin adresi yoksa önceden uyarır.
+ */
+export function epostaKapsamindakiTur(
+  b: Pick<GidenBelge, "type" | "invoiceType" | "isReceipt">,
+): { ok: true } | { ok: false; sebep: string } {
+  if (b.type === "PURCHASE") return { ok: false, sebep: "Alış faturası bizim düzenlediğimiz belge değildir." }
+  if (b.isReceipt) return { ok: false, sebep: "Fiş e-postayla gönderilmez." }
+  if (b.invoiceType !== "E_INVOICE" && b.invoiceType !== "E_ARCHIVE") {
+    return { ok: false, sebep: "Yalnız e-Fatura ve e-Arşiv belgeleri e-postayla gönderilir." }
+  }
+  return { ok: true }
+}
+
+/**
  * Bu belge alıcısına e-postayla gönderilebilir mi? (otomatik ve elle aynı kapı)
  *
  * Yalnız BİZİM düzenlediğimiz ve GİB'e gitmiş e-belge: alış faturası (PURCHASE) satıcının
  * belgesidir, ona geri mail atılmaz; GİB taslağı / Kayıtlı belge henüz kesilmemiştir.
  */
 export function gidenGonderilebilir(b: GidenBelge): { ok: true } | { ok: false; sebep: string } {
-  if (b.type === "PURCHASE") return { ok: false, sebep: "Alış faturası bizim düzenlediğimiz belge değildir." }
-  if (b.isReceipt) return { ok: false, sebep: "Fiş e-postayla gönderilmez." }
-  if (b.invoiceType !== "E_INVOICE" && b.invoiceType !== "E_ARCHIVE") {
-    return { ok: false, sebep: "Yalnız e-Fatura ve e-Arşiv belgeleri e-postayla gönderilir." }
-  }
+  const tur = epostaKapsamindakiTur(b)
+  if (!tur.ok) return tur
   if (b.status !== "SENT" || !b.uuid) {
     return { ok: false, sebep: "Belge henüz GİB'e gönderilmedi; resmî PDF'i yok." }
   }
@@ -178,6 +190,82 @@ export function gelenBildirimKarari(p: {
 export function gelenBildirimSiniri(simdi: Date, baslangic: Date): Date {
   const taze = new Date(simdi.getTime() - GELEN_TAZELIK_SAAT * 3_600_000)
   return taze > baslangic ? taze : baslangic
+}
+
+export type GelenBildirimGorunumu = {
+  ton: "ok" | "hata" | "bekliyor" | "pasif"
+  metin: string
+  aciklama: string
+}
+
+/**
+ * Gelen faturanın bildirim durumu, listede gösterilecek hâliyle.
+ *
+ * Bildirim hiç SÖZ KONUSU OLMAYAN fatura için null döner: özellik açılmadan önce gelmiş
+ * (BASLANGIC), geldiğinde tazeliği geçmiş (ESKI) ya da henüz kapanmamış ama tazelik sınırının
+ * gerisinde kalmış satır (bir sonraki tarama onu ESKI kapatacak). Bunlara "gitmedi" demek
+ * yanlış alarm olurdu. Satır durumları için bkz. prisma `IncomingInvoice.notifyResult`.
+ */
+export function gelenBildirimGorunumu(
+  r: {
+    notifyResult: string | null | undefined
+    notifiedAt: Date | string | null | undefined
+    notifyError?: string | null
+    gelis: Date | null
+  },
+  simdi: Date,
+  baslangic: Date = OTOMATIK_EPOSTA_BASLANGIC,
+): GelenBildirimGorunumu | null {
+  // Alan hiç gelmediyse (Mysoft'tan canlı okunan satır) durum bilinmiyor: bir şey söylenmez.
+  if (r.notifyResult === undefined) return null
+  const kapandi = r.notifiedAt != null
+  const zaman = kapandi
+    ? new Date(r.notifiedAt as Date | string).toLocaleString("tr-TR", {
+        dateStyle: "short",
+        timeStyle: "short",
+        timeZone: "Europe/Istanbul",
+      })
+    : null
+
+  switch (r.notifyResult ?? null) {
+    case "GONDERILDI":
+      return { ton: "ok", metin: "Bildirildi", aciklama: `Hesap sahibine e-postayla bildirildi (${zaman}).` }
+    case "KOPYA":
+      return {
+        ton: "ok",
+        metin: "Bildirildi",
+        aciklama: "Aynı fatura hesabın başka bir firmasında (ana firma ya da şube) bildirildi.",
+      }
+    case "GONDERILIYOR":
+      return { ton: "bekliyor", metin: "Bildiriliyor", aciklama: "E-posta gönderiliyor." }
+    case "HATA":
+      return kapandi
+        ? { ton: "hata", metin: "Bildirilemedi", aciklama: `Deneme hakkı bitti. ${r.notifyError || ""}`.trim() }
+        : {
+            ton: "bekliyor",
+            metin: "Yeniden denenecek",
+            aciklama: `Bildirim gönderilemedi, bir sonraki taramada yeniden denenecek. ${r.notifyError || ""}`.trim(),
+          }
+    case "ALICI_YOK":
+      return { ton: "hata", metin: "Bildirilmedi", aciklama: "Hesapta bildirim alacak yönetici yok." }
+    case "KAPALI":
+      return {
+        ton: "pasif",
+        metin: "Bildirim kapalı",
+        aciklama: "Ayarlar → E-Dönüşüm → Fatura e-postaları'nda gelen fatura bildirimi kapalı.",
+      }
+    case null:
+      if (kapandi) return null
+      if (r.gelis && r.gelis < gelenBildirimSiniri(simdi, baslangic)) return null
+      return {
+        ton: "bekliyor",
+        metin: "Bildirim bekliyor",
+        aciklama: "Gelen faturalar 30 dakikada bir taranır; bu fatura sıradaki taramada bildirilecek.",
+      }
+    default:
+      // ESKI, BASLANGIC ve bilinmeyen durumlar: bildirim söz konusu değil.
+      return null
+  }
 }
 
 export type Uyelik = {

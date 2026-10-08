@@ -224,6 +224,10 @@ GELEN → Gelen her e-fatura, HESABI AÇAN KİŞİYE (hesap kökündeki en eski 
   etiketini döndürür, o bir mail kutusu değildir (`gibPostaKutusuMu`). `.test/.example/
   .kobipo` alanları da adres sayılmaz: geri dönen mail alan adının itibarını düşürür.
   Ölçüm (2026-10-06): son 30 günün e-belgelerinin ~%7'sinin carisinde e-posta var.
+  Bu yüzden fatura editörü, otomatik mail gidecek belgede carinin geçerli adresi yoksa
+  ÖNCEDEN uyarır ve adresi karta yazdırır (`components/fatura-eposta/cari-eposta-uyarisi.tsx`;
+  kapı gönderimle aynı: `epostaKapsamindakiTur` + `faturaEpostaAdresi`). Gelen listesi
+  bildirim durumunu `gelenBildirimGorunumu`ndan yazar (ESKI/BASLANGIC satırda hiçbir şey).
 - Mysoft'a carinin e-postası (`invoiceAccount.email1`) GÖNDERİLMİYOR. Gönderilmeye
   başlanırsa Mysoft'un kendi bildirim ayarı (`isSendDocumentMail`) açık mükellefte müşteri
   aynı faturayı iki kez alabilir.

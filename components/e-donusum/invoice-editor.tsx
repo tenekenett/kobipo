@@ -34,6 +34,8 @@ import { ProductCombobox } from "@/components/e-donusum/product-combobox"
 import { CategoryCombobox } from "@/components/e-donusum/category-combobox"
 import { INVOICE_NO_MAX_LENGTH, normalizeManualInvoiceNo } from "@/lib/utils/invoice-number-format"
 import { CounterpartyCombobox } from "@/components/e-donusum/counterparty-combobox"
+import { CariEpostaUyarisi } from "@/components/fatura-eposta/cari-eposta-uyarisi"
+import { epostaKapsamindakiTur } from "@/lib/fatura-eposta/kurallar"
 import { CariOzetPaneli } from "@/components/e-donusum/cari-ozet-paneli"
 import { useFaturaTaslagi } from "@/components/e-donusum/use-fatura-taslagi"
 import { useCanCallApi } from "@/components/dashboard/write-guard"
@@ -110,8 +112,8 @@ const BRAND_COLOR = "#143d6b"
 
 // `paymentDueDays`: cari kartındaki ödeme vadesi (gün). Liste sorgusu zaten
 // döndürüyor (lib/cari/list-query.ts); fatura vadesi bundan türetilir.
-interface Customer { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; paymentDueDays?: number | null }
-interface Supplier { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; paymentDueDays?: number | null }
+interface Customer { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; email?: string | null; paymentDueDays?: number | null }
+interface Supplier { id: string; name: string; nickname?: string | null; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; city?: string | null; district?: string | null; email?: string | null; paymentDueDays?: number | null }
 interface Product { id: string; name: string; code?: string; barcode?: string | null; salePrice?: number; purchasePrice?: number | string | null; avgPurchasePrice?: number | null; vatRate: number; unit?: string; stockQuantity?: number | string; minStockLevel?: number | string | null; isService?: boolean }
 // Faturaya bağlanabilir alış irsaliyesi (stoğa işlenmiş + henüz bağlanmamış).
 interface LinkableWaybillItem {
@@ -123,7 +125,7 @@ interface LinkableWaybillItem {
 }
 interface LinkableWaybill { id: string; waybillNo: string; date: string; supplierId?: string | null; stockProcessed?: boolean; invoiceId?: string | null; _count?: { items: number }; items?: LinkableWaybillItem[] }
 export interface InvoiceItem { productId?: string; code?: string; description: string; note?: string; unit?: string; quantity: number; unitPrice: number; discountRate?: number; discountAmount?: number; discountMode?: DiscountMode; vatRate: number; withholdingRate?: number; withholdingCode?: string; withholdingName?: string; exciseRate?: number; exciseCode?: string; gekapUnitAmount?: number; otherTaxRate?: number; otherTaxName?: string; otherTaxCode?: string; taxExemptionReasonCode?: string; taxExemptionReason?: string; salePrice?: number; sourceWaybillId?: string }
-interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean; eFaturaBackdatePrefix?: string | null; eArchiveBackdatePrefix?: string | null }
+interface CompanySettings { id: string; name?: string; taxNumber?: string | null; taxOffice?: string | null; address?: string | null; isEDonusumEnabled?: boolean; eFaturaBackdatePrefix?: string | null; eArchiveBackdatePrefix?: string | null; invoiceEmailAuto?: boolean }
 
 // Kayıtlı olmayan (ürün kartı bağlı olmayan) anlamlı kalemleri "ürün/hizmet olarak
 // kaydet" taslaklarına çevirir. Hem gelen e-faturadan içe aktarma anında (erken uyarı)
@@ -2885,6 +2887,32 @@ export function InvoiceEditor({ companyId, mode, invoiceId, defaultManual, defau
                     }
                   }}
                 />
+                {/* GİB'e gidince otomatik e-postayla gidecek belgede carinin adresi yoksa
+                    önceden söylenir (lib/fatura-eposta). Anahtar kapalıysa mail hiç gitmez,
+                    uyarı da gereksizdir; alan gelmediyse varsayılan (açık) sayılır. */}
+                {selectedCari &&
+                  isEDonusumActive &&
+                  companySettings?.invoiceEmailAuto !== false &&
+                  epostaKapsamindakiTur({
+                    type: formData.type,
+                    invoiceType: effectiveInvoiceType,
+                    isReceipt: isReceiptDoc,
+                  }).ok && (
+                    <CariEpostaUyarisi
+                      key={selectedCari.id}
+                      companyId={companyId}
+                      kind={formData.customerId ? "customer" : "supplier"}
+                      cariId={selectedCari.id}
+                      email={selectedCari.email}
+                      onSaved={(email) => {
+                        if (formData.customerId) {
+                          setCustomers((prev) => prev.map((c) => (c.id === selectedCari.id ? { ...c, email } : c)))
+                        } else {
+                          setSuppliers((prev) => prev.map((x) => (x.id === selectedCari.id ? { ...x, email } : x)))
+                        }
+                      }}
+                    />
+                  )}
                 {/* Seçili carinin bakiyesi, vadesi geçmiş tutarı ve son hareketleri —
                     fatura keserken "bu müşterinin durumu ne?" sorusu ekran değiştirmeden. */}
                 <CariOzetPaneli
