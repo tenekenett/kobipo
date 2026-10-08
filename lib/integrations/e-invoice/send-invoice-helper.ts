@@ -14,6 +14,7 @@ import { ensureTemplateFreshQuietly } from "@/lib/integrations/e-invoice/templat
 import { normalizeGibDocumentNo, returnRefError } from "@/lib/invoice/return-ref"
 import { publicInvoiceErrorHint } from "@/lib/integrations/e-invoice/public-invoice"
 import { resolvePublicInvoiceForSend } from "@/lib/integrations/e-invoice/public-invoice.server"
+import { gidenFaturaEpostasiArkaPlanda } from "@/lib/fatura-eposta/giden.server"
 
 /**
  * Mysoft gönderdiğimiz e-Arşiv şablonunu reddedip mükellefin ONAYLI şablonuna
@@ -791,6 +792,8 @@ export async function finalizeGibDraft(invoiceId: string): Promise<SendInvoiceRe
     })
     // GİB'e giden e-belge KDV'ye ve deftere bu an girer: taslak yevmiye fişi açılır.
     await muhasebeyeBildir(invoice.companyId, [{ tip: "INVOICE", id: invoice.id }])
+    // Carinin e-postası kayıtlıysa belge PDF + XML olarak ona da gider (yanıt beklemez).
+    gidenFaturaEpostasiArkaPlanda(invoice.id)
     return { ok: true, uuid: invoice.uuid, providerName: ctx.provider.name }
   }
 

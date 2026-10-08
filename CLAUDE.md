@@ -202,6 +202,60 @@ AÇILMADAN önce sorulur. Karar tek yerde: `lib/kontor/dealer-eligibility.ts` �
 - Ölçüm: `npx tsx scripts/kontor-siparis-kontrol.ts --vkn=<vkn>` (salt okur: firma
   kayıtları, siparişler, tüm-zamanlar LOADED, bayi listesi, kapının cevabı).
 
+## Fatura e-postası: giden ANINDA, gelen YOKLAMAYLA
+
+2026-10-06'ya kadar Kobipo hiçbir faturayı mail olarak göndermiyordu (önizlemedeki
+"E-posta gönder" ucu hiçbir şey yapmadan "kuyruğa alındı" dönüyordu). Kural tek yerde,
+saf: `lib/fatura-eposta/kurallar.ts`; yazma `giden.server.ts` / `gelen.server.ts`.
+
+```
+GİDEN → GİB'e giden e-Fatura/e-Arşiv, carinin kartındaki e-postaya PDF + UBL XML ekli.
+        Belge GİB'e gidince `after()` ile HEMEN (finalizeGibDraft, createInvoiceFromBody).
+GELEN → Gelen her e-fatura, HESABI AÇAN KİŞİYE (hesap kökündeki en eski ADMIN üyeliği,
+        süper-admin hariç) AYRI bir mail. Zamanlanmış uç kutuları tarar.
+```
+
+- **Giden fatura başına TEK otomatik mail:** `invoice_email_logs.autoKey` (= faturanın
+  id'si) benzersizdir, kaydı yazan sahiplenir. HATA 5 denemeye kadar tarama ile yeniden
+  denenir. Elle gönderim (`POST /api/faturalar/[id]/email`) firma anahtarına bakmaz,
+  alıcıyı değiştirebilir ve her seferinde ayrı kayıt açar. Alış faturası, fiş, Manuel
+  belge ve GİB taslağı gönderilmez (`gidenGonderilebilir`).
+- **Carinin e-postası VKN sorgusundan GELMEZ:** GİB `urn:mail:defaultpk@…` posta kutusu
+  etiketini döndürür, o bir mail kutusu değildir (`gibPostaKutusuMu`). `.test/.example/
+  .kobipo` alanları da adres sayılmaz: geri dönen mail alan adının itibarını düşürür.
+  Ölçüm (2026-10-06): son 30 günün e-belgelerinin ~%7'sinin carisinde e-posta var.
+- Mysoft'a carinin e-postası (`invoiceAccount.email1`) GÖNDERİLMİYOR. Gönderilmeye
+  başlanırsa Mysoft'un kendi bildirim ayarı (`isSendDocumentMail`) açık mükellefte müşteri
+  aynı faturayı iki kez alabilir.
+- **Gelen için anlık tetik YOK:** fatura Kobipo'ya değil Mysoft'taki posta kutusuna düşer
+  ve Mysoft API'sinde "fatura geldi" webhook'u yoktur (swagger-v8). Mysoft'un kendi
+  bildirim maili (`addTenantNotificationSettings`) bilerek KULLANILMADI: Mysoft şablonuyla
+  gider (Mysoft'u saklama ilkesi) ve yalnız bayi altındaki mükellefe ayarlanabilir.
+- **Tetik GitHub Actions'tır, 30 dakikada bir** (`.github/workflows/fatura-eposta.yml` →
+  `/api/e-donusum/cron/fatura-eposta`, `CRON_SECRET`). Vercel Hobby'de cron günde birden
+  sık OLAMAZ (dağıtım düşer); Supabase pg_cron'a bilerek bağlanmadı. 30 dk, private
+  repoda Actions'ın ücretsiz kotası (2.000 dk/ay) yüzünden. Workflow logu yalnız
+  sayıları basar.
+- **Tekilleştirme HESAP × ETTN:** şubeler ana firmanın Mysoft kutusunu paylaşır, aynı
+  fatura 2–3 firmada satır olur. Bildirim ana firma satırından gider, diğerleri `KOPYA`.
+- **Tazelik 72 saat** (`GELEN_TAZELIK_SAAT`, ölçü `sentDate ?? docDate ?? createdAt`):
+  elle "son 1 yıl" senkronu ya da yeni firmanın ilk senkronu eski faturaları mail olarak
+  dökmez. Eski satırlar kuyruğa girmeden TOPLU kapanır (`eskileriKapat`); tek tek
+  kapansalardı kuyruğun önünü tıkar, arkadaki yeni fatura sıra gelmeden 72 saati aşardı.
+- **Geçmiş faturaya mail GİTMEZ** (kullanıcı kararı): `OTOMATIK_EPOSTA_BASLANGIC`
+  (2026-10-06 20:50 TR, kodda sabit, test sabitler) öncesinde gelen fatura bildirilmez,
+  öncesinde açılmış belge taramadan mail almaz. Migrasyon `20261006000002`'nin
+  `BASLANGIC` işareti tek başına yetmiyordu: migrasyon → yayın arası kesilen belgeler
+  işaretsiz kalıyor, ilk tarama Mysoft'tan son 72 saati çekip hiç senkronlanmamış eski
+  faturaları "yeni" diye açıyordu. Sınırı GERİYE çekmeyin; "geçmişi tara" gibi yeni bir
+  yol da bu ikisini bilmelidir.
+- Anahtarlar `Company.invoiceEmailAuto` / `incomingEmailNotify` (varsayılan açık), DAR
+  uçla yazılır (`/api/e-donusum/eposta-ayarlari`): `PUT /api/companies/[id]` kısmi
+  gövdede gönderilmeyen alanları siliyor.
+- Ölçüm: `npx tsx scripts/fatura-eposta-kontrol.ts --gelen` (salt okur) ve
+  `--giden=<id>` (PDF/XML/HTML, göndermez); gerçek gönderim yalnız `--gonder --to=<adres>`
+  ile, cariye test maili atılmaz.
+
 ## Abonelik FİRMA bazındadır — yetki devretmez
 
 2026-09-04'te değişti: her firma (kök, şube, ek firma) kendi aboneliğini satın alır.

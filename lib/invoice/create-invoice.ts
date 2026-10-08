@@ -41,6 +41,7 @@ import {
   purchasePaymentBlocker,
 } from "@/lib/personel/calisan-odemesi"
 import type { WriteActor } from "@/lib/api/write-actor"
+import { gidenFaturaEpostasiArkaPlanda } from "@/lib/fatura-eposta/giden.server"
 
 /** Serbest metin alanı: boş/whitespace ise NULL yaz (boş string saklama). */
 function trimOrNull(value: unknown) {
@@ -842,6 +843,9 @@ const invoiceData = {
               integrationStatus: "SENT",
             },
           })
+
+          // Carinin e-postası kayıtlıysa belge PDF + XML olarak ona da gider (yanıt beklemez).
+          gidenFaturaEpostasiArkaPlanda(invoice.id)
 
           const templateWarning = templateFallbackWarning(response.templateFallback)
           if (templateWarning) console.warn(`[e-donusum/invoices] Fatura ${invoice.id}: ${templateWarning}`)

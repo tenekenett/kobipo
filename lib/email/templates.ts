@@ -37,9 +37,18 @@ type LayoutOptions = {
   title: string
   /** Hazır (escape edilmiş / güvenilir) HTML gövde. */
   bodyHtml: string
+  /**
+   * Alt not (hazır HTML). Varsayılanı kullanıcının kendi başlattığı işlemler içindir
+   * ("siz başlatmadıysanız yok sayın"); fatura e-postası başkasının adına gittiği için
+   * kendi notunu verir.
+   */
+  footerHtml?: string
 }
 
-function layout({ title, bodyHtml }: LayoutOptions): string {
+const DEFAULT_FOOTER = `Bu e-posta Kobipo tarafından otomatik gönderilmiştir.<br />
+        Bu işlemi siz başlatmadıysanız e-postayı yok sayabilirsiniz.`
+
+function layout({ title, bodyHtml, footerHtml = DEFAULT_FOOTER }: LayoutOptions): string {
   return `<!DOCTYPE html>
 <html lang="tr">
   <head>
@@ -54,8 +63,7 @@ function layout({ title, bodyHtml }: LayoutOptions): string {
         ${bodyHtml}
       </div>
       <p style="text-align:center;font-size:12px;color:${GRAY};margin-top:20px;line-height:1.6;">
-        Bu e-posta Kobipo tarafından otomatik gönderilmiştir.<br />
-        Bu işlemi siz başlatmadıysanız e-postayı yok sayabilirsiniz.
+        ${footerHtml}
       </p>
     </div>
   </body>
@@ -302,4 +310,130 @@ export function subscriptionNoticeEmail(params: {
         : `Kobipo — ${companyName} aboneliği ${daysLeft === 1 ? "yarın" : `${daysLeft} gün sonra`} sona eriyor`
 
   return { subject, html: layout({ title, bodyHtml }) }
+}
+
+// ---------------------------------------------------------------------------
+// FATURA E-POSTALARI (lib/fatura-eposta/)
+// ---------------------------------------------------------------------------
+
+function detailTable(rows: Array<[string, string | null | undefined]>): string {
+  const body = rows
+    .filter(([, v]) => v != null && String(v).trim() !== "")
+    .map(
+      ([k, v]) => `<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid ${BORDER};font-size:13px;color:${GRAY};white-space:nowrap;">${escapeHtml(k)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid ${BORDER};font-size:13px;color:${TEXT};font-weight:600;text-align:right;word-break:break-all;">${escapeHtml(String(v))}</td>
+      </tr>`,
+    )
+    .join("")
+  return `<table style="width:100%;border-collapse:collapse;margin:18px 0;border:1px solid ${BORDER};border-radius:12px;overflow:hidden;">${body}</table>`
+}
+
+/**
+ * Giden e-belge — satıcının müşterisine. Kobipo markası geri planda kalır: gönderen
+ * adı firmanındır (lib/email/resend.ts `fromName`), konu firma adıyla başlar, yanıt
+ * firmaya gider. Belgenin kendisi ekte (PDF + UBL XML).
+ */
+export function gidenFaturaEmail(params: {
+  companyName: string
+  customerName: string | null
+  documentLabel: string
+  documentNo: string
+  dateLabel: string
+  amountLabel: string
+  ettn: string
+  isEInvoice: boolean
+  canReply: boolean
+}): { subject: string; html: string } {
+  const p = params
+  const greeting = p.customerName ? `Sayın ${escapeHtml(p.customerName)},` : "Merhaba,"
+  const bodyHtml = `
+    ${heading(p.documentLabel)}
+    ${paragraph(greeting)}
+    ${paragraph(
+      `<strong>${escapeHtml(p.companyName)}</strong> tarafından adınıza düzenlenen ${escapeHtml(
+        p.documentLabel,
+      )} ekte PDF ve XML olarak yer almaktadır.`,
+    )}
+    ${detailTable([
+      ["Belge No", p.documentNo],
+      ["Tarih", p.dateLabel],
+      ["Tutar", p.amountLabel],
+      ["ETTN", p.ettn],
+    ])}
+    ${
+      p.isEInvoice
+        ? paragraph(
+            `<span style="color:${GRAY};font-size:13px;">Bu belge GİB üzerinden e-Fatura olarak gelen kutunuza da iletilmiştir; bu e-posta bilgi amaçlıdır.</span>`,
+          )
+        : ""
+    }
+  `
+  const footerHtml = p.canReply
+    ? `Bu e-posta ${escapeHtml(p.companyName)} adına Kobipo aracılığıyla gönderilmiştir.<br />Sorularınız için bu e-postayı yanıtlayabilirsiniz.`
+    : `Bu e-posta ${escapeHtml(p.companyName)} adına Kobipo aracılığıyla gönderilmiştir.`
+  return {
+    subject: `${p.companyName} — ${p.documentLabel} ${p.documentNo}`,
+    html: layout({ title: p.documentLabel, bodyHtml, footerHtml }),
+  }
+}
+
+/**
+ * Gelen e-fatura bildirimi — hesabı açan kişiye, fatura başına bir mail.
+ * PDF alınabildiyse ekte gelir; alınamadıysa mail yine gider ve bunu söyler.
+ */
+export function gelenFaturaEmail(params: {
+  companyName: string
+  senderName: string
+  senderTaxNumber: string | null
+  invoiceNo: string | null
+  dateLabel: string | null
+  amountLabel: string | null
+  profileLabel: string | null
+  isCommercial: boolean
+  hasPdf: boolean
+  viewUrl: string
+}): { subject: string; html: string } {
+  const p = params
+  const bodyHtml = `
+    ${heading("Yeni e-fatura geldi")}
+    ${paragraph(
+      `<strong>${escapeHtml(p.companyName)}</strong> adına <strong>${escapeHtml(
+        p.senderName,
+      )}</strong> tarafından gönderilen bir e-fatura gelen kutunuza düştü.`,
+    )}
+    ${detailTable([
+      ["Gönderen", p.senderName],
+      ["VKN/TCKN", p.senderTaxNumber],
+      ["Fatura No", p.invoiceNo],
+      ["Tarih", p.dateLabel],
+      ["Tutar", p.amountLabel],
+      ["Senaryo", p.profileLabel],
+    ])}
+    ${
+      p.isCommercial
+        ? paragraph(
+            `Bu bir <strong>ticari fatura</strong>: kabul ya da reddetmek için GİB'in tanıdığı süre <strong>8 gündür</strong>.`,
+          )
+        : ""
+    }
+    ${
+      p.hasPdf
+        ? paragraph(`<span style="color:${GRAY};font-size:13px;">Faturanın PDF'i ektedir.</span>`)
+        : paragraph(
+            `<span style="color:${GRAY};font-size:13px;">Faturanın PDF'i şu an alınamadı; belgeyi Kobipo'dan görüntüleyebilirsiniz.</span>`,
+          )
+    }
+    <div style="margin:24px 0;">${button(p.viewUrl, "Gelen e-faturaları aç")}</div>
+    ${fallbackLink(p.viewUrl)}
+  `
+  const subjectAmount = p.amountLabel ? ` — ${p.amountLabel}` : ""
+  return {
+    subject: `Yeni e-fatura: ${p.senderName}${subjectAmount}`,
+    html: layout({
+      title: "Yeni e-fatura",
+      bodyHtml,
+      footerHtml: `Bu bildirim Kobipo hesabınızı açtığınız e-posta adresine gönderilir.<br />Kapatmak için: Ayarlar → E-Dönüşüm → Fatura e-postaları.`,
+    }),
+  }
 }

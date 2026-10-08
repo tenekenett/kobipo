@@ -1,0 +1,52 @@
+name: Fatura e-postası taraması
+
+# Gelen e-faturaları Mysoft'tan çeker ve yenilerini hesap kurucusuna mail olarak
+# bildirir; giden e-belgelerde kaçan / hata alan otomatik mailleri yeniden dener.
+# Uç: app/api/e-donusum/cron/fatura-eposta (kural lib/fatura-eposta/).
+#
+# Neden Vercel Cron değil: Hobby planında cron günde birden sık olamaz (daha sık girdi
+# dağıtımı düşürür). Neden 30 dk: repo private olunca Actions'ın ücretsiz kotası ayda
+# 2.000 dk ve her koşum en az 1 dk sayılır (30 dk → ~1.440 dk/ay; 10 dk kotayı aşar).
+# Dakikalar :07/:37 — saat başı GitHub'ın en yoğun anıdır, zamanlanmış işler gecikir.
+# Gecikme ya da atlanan koşum veri kaybettirmez: uç satır düzeyinde sahiplenir, gelen
+# fatura 72 saat boyunca bildirilebilir.
+#
+# Sır: Settings → Secrets and variables → Actions → CRON_SECRET (Vercel'deki ile aynı).
+#
+# Log YALNIZ sayıları basar: public repoda Actions logları herkese açıktır ve uç yanıtı
+# firma adları taşır. Ayrıntı Vercel loglarında ("[fatura-eposta]").
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: fatura-eposta
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  tara:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Taramayı tetikle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          URL: https://www.kobipo.com/api/e-donusum/cron/fatura-eposta
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET tanımlı değil (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          code=$(curl -sS -o yanit.json -w '%{http_code}' --max-time 90 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" "$URL" || echo "000")
+          echo "HTTP $code"
+          # Diziler uzunluğa, metinler işarete çevrilir: yalnız sayılar loga düşer.
+          jq -c 'walk(if type == "array" then length elif type == "string" then "…" else . end)' yanit.json 2>/dev/null || true
+          if [ "$code" != "200" ]; then
+            echo "::error::Tarama HTTP $code döndü — ayrıntı Vercel loglarında ([fatura-eposta])."
+            exit 1
+          fi

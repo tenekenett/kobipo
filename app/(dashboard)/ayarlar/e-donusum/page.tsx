@@ -29,6 +29,7 @@ import { Switch } from "@/components/ui/switch"
 import { MYSOFT_PROD_URL, MYSOFT_TEST_URL } from "@/lib/integrations/e-invoice/constants"
 import { withCompanyHref } from "@/lib/company/href"
 import Link from "next/link"
+import { FaturaEpostaAyarlari } from "@/components/e-donusum/fatura-eposta-ayarlari"
 
 interface Company {
   id: string
@@ -391,6 +392,7 @@ export default function EDonusumAyarlariPage() {
             </Button>
           </CardContent>
         </Card>
+        <FaturaEpostaAyarlari companyId={companyId} />
       </div>
     )
   }
@@ -483,6 +485,9 @@ export default function EDonusumAyarlariPage() {
           />
         </CardContent>
       </Card>
+
+      {/* Fatura e-postaları: kendi ucuyla anında kaydedilir (üstteki Kaydet'e bağlı değil). */}
+      <FaturaEpostaAyarlari companyId={companyId} />
 
       {/* Environment selector */}
       <Card>
