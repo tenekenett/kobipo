@@ -1,7 +1,6 @@
 # Fatura e-postası — DEVİR NOTU (2026-10-06)
 
-> **Dal:** `fatura-eposta` (main'e BİLEREK gönderilmedi — aşağıda "Neden ayrı dal").
-> Devam: `git fetch && git checkout fatura-eposta`
+> **2026-10-08'de main'e birleştirildi.** Aşağıdaki "Neden ayrı dal" bölümü o güne kadarki durumdur.
 
 ## İstek (kullanıcı)
 
@@ -90,7 +89,21 @@ paketler yeniden koşuldu). Gerçek mail gönderimi ve migrasyonlu uçtan uca de
 - **Anahtarlar:** `Company.invoiceEmailAuto`, `Company.incomingEmailNotify` (varsayılan açık),
   Ayarlar → E-Dönüşüm → "Fatura e-postaları" (şubede de görünür). Elle gönderim anahtara bakmaz.
 
-## ▶ DURUM — 2026-10-06 akşam (ikinci oturum)
+## ▶ DURUM — 2026-10-08: main'e BİRLEŞTİRİLDİ
+
+- `CRON_SECRET` YENİLENDİ: eski Vercel değeri okunamadı (proje bu makinedeki Vercel oturumunun
+  göremediği `tenekenets-projects` kapsamında, `.env.local`de yok). Yeni rastgele değer üretildi ve
+  kullanıcı Vercel (Production) + GitHub Actions sırrına aynı değeri yazdı. Bu değeri kodda
+  yalnız Vercel'in günlük abonelik cron'u kullanıyor; Vercel onu kendisi ekliyor, yeni dağıtımla
+  yeni değere geçer. `BILLING_CRON_SECRET` ayrı, dokunulmadı.
+- Dal main'e birleştirildi (main 8 commit öndeydi, çakışma yok; ön izleme sayfası ve CLAUDE.md
+  iki taraflı otomatik birleşti). `tsc` temiz, `vitest` 1.939 geçti.
+- Alttaki "Kalan" listesinden 5. madde (`PUT /api/companies/[id]` alan silme) main'de
+  `3bdb0e5` ile kapandı.
+- Reypo Medya (Mysoft TEST ortamı) otomatik maillerden ÇIKARILMADI; kullanıcı cevap vermedi.
+  Gerekirse firmanın Ayarlar → E-Dönüşüm → "Fatura e-postaları" anahtarıyla kapatılır.
+
+## (Eski) DURUM — 2026-10-06 akşam (ikinci oturum)
 
 Yapıldı:
 - Migrasyon canlıda (kullanıcı uyguladı). Doğrulandı: 419 giden e-belge + 2.390 gelen satır
