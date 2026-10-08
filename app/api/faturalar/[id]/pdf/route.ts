@@ -4,7 +4,10 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { resolveSlugId } from "@/lib/slug-resolve"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyExport } from "@/lib/middleware/company"
+import { logoDocTypeFor } from "@/lib/company/logo"
+import { loadDocumentLogo } from "@/lib/company/logo.server"
 import { renderFaturaPdf } from "@/lib/pdf/documents/fatura-document"
+import { FATURA_PDF_INCLUDE, faturaPdfData } from "@/lib/pdf/documents/fatura-data"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
 
@@ -14,10 +17,11 @@ export const dynamic = "force-dynamic"
  * Fatura PDF'i (Kobipo düzeni).
  *
  * Yerleşim `lib/pdf/documents/fatura-document.ts` içinde akış tabanlı kurulur;
- * bu uç yalnız veriyi toplar. Önceki jsPDF sürümü mutlak mm koordinatı
- * kullanıyordu: adres/şehir/telefon sarılmadan çiziliyor, müşteri kutusu 25mm
- * sabit yükseklikte ad 2 / adres 1 satıra kırpılıyordu. Regresyon testleri:
- * `lib/pdf/doc/fatura-pdf-fuzz.test.ts`.
+ * bu uç yalnız veriyi toplar — fatura önizleme sayfasının ucuyla (`/api/e-donusum/
+ * invoices/[id]/preview-pdf`) aynı eşleyiciden (`fatura-data.ts`), aynı belge.
+ * Önceki jsPDF sürümü mutlak mm koordinatı kullanıyordu: adres/şehir/telefon
+ * sarılmadan çiziliyor, müşteri kutusu 25mm sabit yükseklikte ad 2 / adres 1
+ * satıra kırpılıyordu. Regresyon testleri: `lib/pdf/doc/fatura-pdf-fuzz.test.ts`.
  */
 export const GET = withNavigationErrorPage(withApiErrors(async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -28,7 +32,6 @@ export const GET = withNavigationErrorPage(withApiErrors(async function GET(requ
 
     const resolvedParams = await params
     const { searchParams } = new URL(request.url)
-    const template = searchParams.get("template") || "standart"
     // Fatura id'si dashboard'dan slug (fatura no) gelebilir → cuid'e çevir. Firma scope'u
     // için company/companyId param'ı da (slug olabilir) çözülür; yoksa global slug araması
     // yapılır ve erişim aşağıdaki ensureCompanyAccess ile korunur. [[slug-resolve.ts]]
@@ -39,23 +42,7 @@ export const GET = withNavigationErrorPage(withApiErrors(async function GET(requ
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
-      include: {
-        customer: true,
-        supplier: true,
-        items: { include: { product: true }, orderBy: { order: "asc" } },
-        company: {
-          select: {
-            id: true,
-            name: true,
-            taxNumber: true,
-            taxOffice: true,
-            address: true,
-            city: true,
-            phone: true,
-            email: true,
-          },
-        },
-      },
+      include: FATURA_PDF_INCLUDE,
     })
 
     if (!invoice) {
@@ -64,42 +51,8 @@ export const GET = withNavigationErrorPage(withApiErrors(async function GET(requ
 
     await ensureCompanyExport(invoice.companyId)
 
-    const grossTotal = invoice.items.reduce(
-      (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),
-      0,
-    )
-    const lineDiscountTotal = invoice.items.reduce(
-      (sum, item) => sum + Number(item.discountAmount || 0),
-      0,
-    )
-
-    const pdfBuffer = await renderFaturaPdf({
-      invoiceNo: invoice.invoiceNo,
-      date: invoice.date,
-      dueDate: invoice.dueDate,
-      type: invoice.type,
-      invoiceType: invoice.invoiceType,
-      currency: invoice.currency || "TRY",
-      notes: invoice.notes,
-      template,
-      company: invoice.company,
-      counterparty: invoice.type === "SALES" ? invoice.customer : invoice.supplier,
-      lines: invoice.items.map((item) => ({
-        description: item.description,
-        note: item.note,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.unitPrice),
-        discountAmount: Number(item.discountAmount || 0),
-        vatRate: Number(item.vatRate),
-        totalAmount: Number(item.totalAmount),
-      })),
-      grossTotal,
-      lineDiscountTotal,
-      globalDiscountAmount: Number(invoice.globalDiscountAmount || 0),
-      netAmount: Number(invoice.netAmount),
-      vatAmount: Number(invoice.vatAmount),
-      totalAmount: Number(invoice.totalAmount),
-    })
+    const logo = await loadDocumentLogo(invoice.companyId, logoDocTypeFor(invoice.invoiceType))
+    const pdfBuffer = await renderFaturaPdf(faturaPdfData(invoice, logo))
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {

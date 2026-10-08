@@ -2,12 +2,24 @@
  * Fatura PDF'i — kayma avı (fuzz + karakter karakter büyütme).
  * Teklif testiyle aynı değişmezler: taşma yok, çakışma yok, alanlar kırpılmıyor.
  */
-import { describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it } from "vitest"
+import sharp from "sharp"
+import type { CompanyLogo } from "@/lib/company/logo"
 import { renderFaturaPdf, type FaturaPdfData } from "@/lib/pdf/documents/fatura-document"
 import { checkPdf } from "@/lib/pdf/doc/layout-invariants"
 import { extractTextRuns } from "@/lib/pdf/doc/extract-text-runs"
 import { fuzzAmount, fuzzField, rng, token, words } from "@/lib/pdf/doc/fuzz"
 import { stripSoftBreaks } from "@/lib/pdf/doc/safe-text"
+
+// Logolu belge: sağ üst kolon logoyla uzar — geniş ve dik iki oran da denenir.
+let LOGOS: CompanyLogo[] = []
+beforeAll(async () => {
+  const png = async (width: number, height: number) => {
+    const buf = await sharp({ create: { width, height, channels: 4, background: "#143d6b" } }).png().toBuffer()
+    return { dataUri: `data:image/png;base64,${buf.toString("base64")}`, pixelWidth: width, pixelHeight: height }
+  }
+  LOGOS = [await png(400, 120), await png(120, 160), { ...(await png(774, 267)), kobipo: true }]
+})
 
 function buildData(rand: () => number): FaturaPdfData {
   const lineCount = 1 + Math.floor(rand() * 5)
@@ -16,10 +28,10 @@ function buildData(rand: () => number): FaturaPdfData {
     date: new Date("2026-08-17"),
     dueDate: rand() < 0.5 ? new Date("2026-09-17") : null,
     type: ["SALES", "PURCHASE", "RETURN"][Math.floor(rand() * 3)],
-    invoiceType: ["E_INVOICE", "E_ARCHIVE", "MANUAL"][Math.floor(rand() * 3)],
     currency: ["TRY", "USD", "EUR"][Math.floor(rand() * 3)],
     notes: fuzzField(rand, 400),
-    template: rand() < 0.3 ? "kurumsal" : "standart",
+    cancelled: rand() < 0.1,
+    logo: rand() < 0.6 ? LOGOS[Math.floor(rand() * LOGOS.length)] : null,
     company: {
       name: fuzzField(rand),
       taxNumber: token(rand, 10),
@@ -41,21 +53,25 @@ function buildData(rand: () => number): FaturaPdfData {
             phone: token(rand, 11),
           }
         : null,
+    counterpartyLabel: "MÜŞTERİ BİLGİLERİ",
     lines: Array.from({ length: lineCount }, () => ({
       description: fuzzField(rand, 180),
       note: rand() < 0.5 ? fuzzField(rand, 200) : null,
       quantity: fuzzAmount(rand),
+      unit: rand() < 0.7 ? ["ADET", "KG", "LT", "SAAT"][Math.floor(rand() * 4)] : null,
       unitPrice: fuzzAmount(rand),
       discountAmount: rand() < 0.4 ? fuzzAmount(rand) : 0,
-      vatRate: [0, 1, 10, 20][Math.floor(rand() * 4)],
-      totalAmount: fuzzAmount(rand),
+      discountRate: rand() < 0.3 ? 12.5 : null,
+      lineTotal: fuzzAmount(rand),
     })),
-    grossTotal: fuzzAmount(rand),
-    lineDiscountTotal: rand() < 0.5 ? fuzzAmount(rand) : 0,
-    globalDiscountAmount: rand() < 0.4 ? fuzzAmount(rand) : 0,
-    netAmount: fuzzAmount(rand),
-    vatAmount: fuzzAmount(rand),
-    totalAmount: fuzzAmount(rand),
+    totals: {
+      grossTotal: fuzzAmount(rand),
+      lineDiscountTotal: rand() < 0.5 ? fuzzAmount(rand) : 0,
+      globalAdjustment: rand() < 0.4 ? (rand() < 0.8 ? -1 : 1) * fuzzAmount(rand) : 0,
+      withholdingAmount: rand() < 0.2 ? fuzzAmount(rand) : 0,
+      rounding: rand() < 0.2 ? -0.03 : 0,
+      totalAmount: fuzzAmount(rand),
+    },
   }
 }
 

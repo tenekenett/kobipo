@@ -13,7 +13,9 @@
  *      3. ana firmanın ayar kaşesi, 4. ana firmanın şablon kaşesi — şube aynı tüzel
  *      kişidir. Ek firma ayrı tüzel kişidir, hesap kökünün kaşesini DEVRALMAZ.
  *   Şablonlar arasında: gönderimde kullanılan (aktif) önce, sonra en son güncellenen.
- *   Gizlenen ("silinen") şablonun kaşesi kullanılmaz.
+ *   Gizlenen ("silinen") şablonun kaşesi kullanılmaz. Şablonun tasarımı aynı Mysoft
+ *   hesabındaki BAŞKA bir Kobipo kaydında yapılmışsa kaşe oradan okunur — logoyla aynı
+ *   kural ve güvenlik sınırı (`template-design.ts`, 2026-10-08).
  *
  * Saf modül (istemci de okur): Prisma/sharp `stamp.server.ts`te.
  */
@@ -25,6 +27,11 @@ export type StampCandidate = {
   hidden: boolean
   hasStamp: boolean
   updatedAt: Date
+  /**
+   * Kaşenin okunacağı satır, satırın kendisi değilse: şablonun tasarımı aynı Mysoft
+   * hesabındaki başka bir Kobipo kaydında yapılmış (`template-design.ts`).
+   */
+  designTemplateId?: string
 }
 
 export type StampSource =
@@ -109,7 +116,7 @@ export function pickStampSource(args: {
     if (!id) continue
     if (args.settingsCompanyIds.includes(id)) return { kind: "settings", companyId: id }
     const template = pickStampTemplate(args.templates.filter((t) => t.companyId === id))
-    if (template) return { kind: "template", companyId: id, templateId: template.id }
+    if (template) return { kind: "template", companyId: id, templateId: template.designTemplateId ?? template.id }
   }
   return null
 }

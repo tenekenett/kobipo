@@ -4,28 +4,27 @@ import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { prisma } from "@/lib/db/prisma"
 import { ensureCompanyExport } from "@/lib/middleware/company"
 import { resolveSlugId } from "@/lib/slug-resolve"
-import {
-  generateGibInvoicePdfBuffer,
-  type GibInvoiceLine,
-  type GibDocKind,
-} from "@/lib/pdf/gib-invoice-pdf"
+import { logoDocTypeFor } from "@/lib/company/logo"
+import { loadDocumentLogo } from "@/lib/company/logo.server"
+import { renderFaturaPdf } from "@/lib/pdf/documents/fatura-document"
+import { FATURA_PDF_INCLUDE, faturaPdfData } from "@/lib/pdf/documents/fatura-data"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { documentFileName, inlineDisposition, withNavigationErrorPage } from "@/lib/api/pdf-response"
-import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
 
 export const dynamic = "force-dynamic"
 
 /**
- * KAYDEDİLMİŞ bir faturadan GİB düzeninde taslak/ön izleme PDF'i üretir.
+ * KAYDEDİLMİŞ bir faturanın RESMÎ OLMAYAN PDF'i (Kobipo düzeni, teklif gibi).
  *
- * Editördeki (kaydetmeden) `POST /api/e-donusum/invoices/preview-pdf` ile aynı
- * görünümü verir; fark, verinin DB'deki kayıtlı faturadan gelmesidir. Fatura
- * önizleme sayfasındaki "PDF İndir" butonu bunu çağırır. Resmî GİB PDF'i (ETTN
- * alındıktan sonra) ayrı endpoint üretir — bkz. `[id]/pdf/route.ts`.
+ * Fatura önizleme sayfasındaki "PDF İndir" ve "Yazdır" bunu çağırır — GİB'e gitmemiş
+ * belgede (Manuel/kâğıt fatura, gönderilmemiş e-belge, alış) tek çıktı budur. Belge
+ * `lib/pdf/documents/fatura-document.ts`, veri `fatura-data.ts` (e-Dönüşüm detayındaki
+ * `/api/faturalar/[id]/pdf` ile aynı). 2026-10-08'e kadar burası GİB düzenini taklit
+ * ediyordu (e-ARŞİV FATURA kutusu, ETTN, KDV Matrahı, Ödenecek Tutar).
+ *
+ * Resmî GİB PDF'i (ETTN alındıktan sonra) ayrı uçtur — `[id]/pdf/route.ts`. Editördeki
+ * "Önizle (GİB)" GİB düzenini korur: `POST /api/e-donusum/invoices/preview-pdf`.
  */
-
-const n = (v: unknown): number => Number(v) || 0
-
 export const GET = withNavigationErrorPage(withApiErrors(async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -40,22 +39,7 @@ export const GET = withNavigationErrorPage(withApiErrors(async function GET(
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: resolvedId },
-      include: {
-        company: {
-          select: {
-            name: true,
-            taxNumber: true,
-            taxOffice: true,
-            address: true,
-            city: true,
-            phone: true,
-            email: true,
-          },
-        },
-        customer: true,
-        supplier: true,
-        items: { orderBy: { order: "asc" } },
-      },
+      include: FATURA_PDF_INCLUDE,
     })
     if (!invoice) return NextResponse.json({ error: "Fatura bulunamadı" }, { status: 404 })
 
@@ -67,118 +51,14 @@ export const GET = withNavigationErrorPage(withApiErrors(async function GET(
       )
     }
 
-    const type: "SALES" | "PURCHASE" | "RETURN" =
-      invoice.type === "PURCHASE" ? "PURCHASE" : invoice.type === "RETURN" ? "RETURN" : "SALES"
-    const invoiceType: GibDocKind =
-      invoice.invoiceType === "E_INVOICE"
-        ? "E_INVOICE"
-        : invoice.invoiceType === "E_ARCHIVE"
-          ? "E_ARCHIVE"
-          : "MANUAL"
-
-    const party = type === "PURCHASE" ? invoice.supplier : invoice.customer || invoice.supplier
-    const counterparty = party
-      ? {
-          name: party.name,
-          taxNumber: party.taxNumber,
-          taxOffice: party.taxOffice,
-          address: party.address,
-          district: party.district,
-          city: party.city,
-          phone: party.phone,
-          email: party.email,
-        }
-      : null
-
-    const lines: GibInvoiceLine[] = invoice.items.map((it) => {
-      const gross = n(it.quantity) * n(it.unitPrice)
-      const disc = n(it.discountAmount)
-      return {
-        description: it.description,
-        note: it.note,
-        quantity: n(it.quantity),
-        unit: it.unit,
-        unitPrice: n(it.unitPrice),
-        discountAmount: disc,
-        discountRate: n(it.discountRate),
-        vatRate: n(it.vatRate),
-        vatAmount: n(it.vatAmount),
-        withholdingRate: n(it.withholdingRate),
-        lineNet: gross - disc,
-      }
-    })
-
-    const grossTotal = invoice.items.reduce((s, it) => s + n(it.quantity) * n(it.unitPrice), 0)
-    const lineDiscountTotal = invoice.items.reduce((s, it) => s + n(it.discountAmount), 0)
-    // Kalem vergileri (tevkifat/ÖTV/diğer) DB'de fatura altı (genel) iskonto UYGULANMADAN
-    // saklanır; başlık matrah/KDV ise iskonto düşülmüş haldedir. Toplamın kırılımla tutması
-    // için kalem vergilerini de aynı oranda küçültürüz (Kobipo önizleme ile birebir).
-    const globalDiscountAmt = n(invoice.globalDiscountAmount)
-    const preGlobalNet = n(invoice.netAmount) + globalDiscountAmt
-    const globalFactor = preGlobalNet > 0 ? n(invoice.netAmount) / preGlobalNet : 1
-    const withholdingAmount = invoice.items.reduce((s, it) => s + n(it.withholdingAmount), 0) * globalFactor
-    const exciseAmount = invoice.items.reduce((s, it) => s + n(it.exciseAmount), 0) * globalFactor
-    const otherTaxAmount = invoice.items.reduce((s, it) => s + n(it.otherTaxAmount), 0) * globalFactor
-    // Diğer verginin KDV matrahına GİREN kısmı (GEKAP) — matrahın üstüne eklenen
-    // türlerden (Konaklama, ÖİV) ayrı gösterilir.
-    const otherTaxInBaseAmount =
-      invoice.items.reduce(
-        (s, it) => s + (isOtherTaxInVatBase(it.otherTaxCode) ? n(it.otherTaxAmount) : 0),
-        0,
-      ) * globalFactor
-    // Maktu GEKAP fatura altı iskontodan ETKİLENMEZ → globalFactor uygulanmaz.
-    const gekapAmount = invoice.items.reduce((s, it) => s + n(it.gekapAmount), 0)
-    // KDV matrahı = net + ÖTV + GEKAP (bkz. lib/invoice/line-tax.ts).
-    const vatBaseAmount =
-      n(invoice.netAmount) + exciseAmount + otherTaxInBaseAmount + gekapAmount
-    const otherTaxLabel =
-      invoice.items.find((it) => n(it.otherTaxAmount) > 0 && it.otherTaxName)?.otherTaxName || null
-
-    const pdfBuffer = await generateGibInvoicePdfBuffer({
-      invoiceNo: invoice.eDocumentNo || invoice.invoiceNo,
-      ettn: invoice.uuid,
-      date: invoice.date.toISOString(),
-      dueDate: invoice.dueDate ? invoice.dueDate.toISOString() : null,
-      type,
-      invoiceType,
-      currency: invoice.currency || "TRY",
-      // Resmî GİB PDF'i ayrı endpoint üretir; buradaki her zaman ön izlemedir.
-      // Henüz kesinleşmemiş (DRAFT) faturada "TASLAK" filigranı gösterilir.
-      isDraft: invoice.status === "DRAFT",
-      company: {
-        name: invoice.company.name,
-        taxNumber: invoice.company.taxNumber,
-        taxOffice: invoice.company.taxOffice,
-        address: invoice.company.address,
-        city: invoice.company.city,
-        phone: invoice.company.phone,
-        email: invoice.company.email,
-      },
-      counterparty,
-      items: lines,
-      totals: {
-        grossTotal,
-        lineDiscountTotal,
-        globalDiscount: n(invoice.globalDiscountAmount),
-        netAmount: n(invoice.netAmount),
-        vatBaseAmount,
-        vatAmount: n(invoice.vatAmount),
-        withholdingAmount,
-        exciseAmount,
-        otherTaxAmount,
-        otherTaxInBaseAmount,
-        gekapAmount,
-        otherTaxLabel,
-        totalAmount: n(invoice.totalAmount),
-      },
-      notes: invoice.notes,
-    })
+    const logo = await loadDocumentLogo(invoice.companyId, logoDocTypeFor(invoice.invoiceType))
+    const pdfBuffer = await renderFaturaPdf(faturaPdfData(invoice, logo))
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": inlineDisposition(documentFileName(invoice.eDocumentNo || invoice.invoiceNo, "taslak-fatura")),
+        "Content-Disposition": inlineDisposition(documentFileName(invoice.eDocumentNo || invoice.invoiceNo, "fatura")),
         "Content-Length": String(pdfBuffer.length),
         "Cache-Control": "no-store",
       },

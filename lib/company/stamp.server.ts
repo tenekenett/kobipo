@@ -3,6 +3,7 @@ import sharp from "sharp"
 import { prisma } from "@/lib/db/prisma"
 import { normalizeDesignOptions } from "@/lib/integrations/e-invoice/template-designer"
 import { MAX_STAMP_UPLOAD_CHARS, StampImageError, decodeDataUri, normalizeStampImage } from "./stamp-image"
+import { findForeignDesigns } from "./template-design.server"
 import {
   clampStampWidthMm,
   pickStampSource,
@@ -21,6 +22,26 @@ import {
  * değil: sebep firmayla birlikte loglanır.
  */
 export { StampImageError } from "./stamp-image"
+
+type TemplateRow = StampCandidate & { eDocumentType: number; xsltName: string; hasDesign: boolean }
+
+/**
+ * Firmanın (şubede ana firmanın da) tasarımsız şablon satırları ve kaşeli tasarımlarının
+ * aynı Mysoft hesabındaki karşılığı — "Şablondan al" listesi ve kopyalama denetimi için.
+ */
+async function foreignStampTemplates(ids: string[]) {
+  const rows = await prisma.$queryRaw<TemplateRow[]>(Prisma.sql`
+    SELECT id, "companyId", "eDocumentType", "xsltName", "isActive", hidden, "updatedAt",
+           false AS "hasDesign", false AS "hasStamp"
+    FROM einvoice_templates
+    WHERE "companyId" IN (${Prisma.join(ids)}) AND options IS NULL AND hidden = false
+  `)
+  const foreign = await findForeignDesigns(rows, "stampDataUri")
+  return rows.flatMap((r) => {
+    const designId = foreign.get(r.id)
+    return designId ? [{ ...r, designTemplateId: designId }] : []
+  })
+}
 
 type StampContext = {
   parentCompanyId: string | null
@@ -53,12 +74,19 @@ async function stampContext(companyId: string): Promise<StampContext | null> {
 
   // Yalnız künye: options JSON'u logo + kaşe gömülü (her biri 560 KB'a kadar) ve bir
   // firmada onlarca şablon olabiliyor; görsel yalnız seçilen satırdan okunur.
-  const templates = await prisma.$queryRaw<StampCandidate[]>(Prisma.sql`
-    SELECT id, "companyId", "isActive", hidden, "updatedAt",
+  const templates = await prisma.$queryRaw<TemplateRow[]>(Prisma.sql`
+    SELECT id, "companyId", "eDocumentType", "xsltName", "isActive", hidden, "updatedAt",
+           options IS NOT NULL AS "hasDesign",
            COALESCE(options->>'stampDataUri', '') <> '' AS "hasStamp"
     FROM einvoice_templates
     WHERE "companyId" IN (${Prisma.join(ids)})
   `)
+  // Tasarımı aynı Mysoft hesabındaki başka kayıtta duran şablon (template-design.ts).
+  const foreign = await findForeignDesigns(templates, "stampDataUri")
+  for (const row of templates) {
+    const designId = foreign.get(row.id)
+    if (designId) Object.assign(row, { hasStamp: true, designTemplateId: designId })
+  }
   return { parentCompanyId: company.parentCompanyId, settingsCompanyIds, templates }
 }
 
@@ -128,7 +156,8 @@ export type TemplateStampOption = {
 
 /**
  * Ayarlar ekranının "Şablondan al" listesi: firmanın (şubede ana firmanın da) gizli
- * olmayan şablonlarındaki kaşeler. Aynı görsel birden çok şablonda durabildiği için
+ * olmayan şablonlarındaki kaşeler — tasarımı aynı Mysoft hesabındaki başka kayıtta
+ * duranlar dahil (`template-design.ts`). Aynı görsel birden çok şablonda durabildiği için
  * içerikten tekilleştirilir; aktif ve yeni olan önce gelir.
  */
 export async function listTemplateStamps(companyId: string): Promise<TemplateStampOption[]> {
@@ -138,24 +167,49 @@ export async function listTemplateStamps(companyId: string): Promise<TemplateSta
   })
   if (!company) return []
   const ids = company.parentCompanyId ? [companyId, company.parentCompanyId] : [companyId]
-  const rows = await prisma.$queryRaw<
-    Array<{ id: string; companyId: string; xsltName: string; eDocumentType: number; isActive: boolean; stamp: string }>
+  const own = await prisma.$queryRaw<
+    Array<{ id: string; companyId: string; xsltName: string; eDocumentType: number; isActive: boolean; updatedAt: Date; stamp: string }>
   >(Prisma.sql`
-    SELECT id, "companyId", "xsltName", "eDocumentType", "isActive", options->>'stampDataUri' AS stamp
+    SELECT id, "companyId", "xsltName", "eDocumentType", "isActive", "updatedAt", options->>'stampDataUri' AS stamp
     FROM einvoice_templates
     WHERE "companyId" IN (${Prisma.join(ids)})
       AND hidden = false
       AND COALESCE(options->>'stampDataUri', '') <> ''
-    ORDER BY ("companyId" = ${companyId}) DESC, "isActive" DESC, "updatedAt" DESC, id
   `)
+  // Firmanın listesinde görünen ama tasarımı aynı Mysoft hesabındaki başka kayıtta duran
+  // şablonlar: kaşe o kayıttaki tasarımdan, ad/aktiflik firmanın kendi satırından.
+  const foreignRows = await foreignStampTemplates(ids)
+  const foreignStamps = new Map<string, string>()
+  if (foreignRows.length) {
+    const designs = await prisma.$queryRaw<Array<{ id: string; stamp: string }>>(Prisma.sql`
+      SELECT id, options->>'stampDataUri' AS stamp FROM einvoice_templates
+      WHERE id IN (${Prisma.join([...new Set(foreignRows.map((r) => r.designTemplateId))])})
+    `)
+    for (const d of designs) foreignStamps.set(d.id, d.stamp)
+  }
+
+  const entries = [
+    ...own.map((r) => ({ ...r, templateId: r.id })),
+    ...foreignRows.map((r) => ({
+      ...r,
+      templateId: r.designTemplateId,
+      stamp: foreignStamps.get(r.designTemplateId) || "",
+    })),
+  ].sort(
+    (a, b) =>
+      Number(b.companyId === companyId) - Number(a.companyId === companyId) ||
+      Number(b.isActive) - Number(a.isActive) ||
+      b.updatedAt.getTime() - a.updatedAt.getTime() ||
+      a.id.localeCompare(b.id),
+  )
   const seen = new Set<string>()
   const options: TemplateStampOption[] = []
-  for (const row of rows) {
+  for (const row of entries) {
     const dataUri = normalizeDesignOptions({ stampDataUri: row.stamp }).stampDataUri
     if (!dataUri || seen.has(dataUri)) continue
     seen.add(dataUri)
     options.push({
-      templateId: row.id,
+      templateId: row.templateId,
       fromParent: row.companyId !== companyId,
       xsltName: row.xsltName,
       eDocumentType: row.eDocumentType,
@@ -182,7 +236,8 @@ export async function saveUploadedStamp(companyId: string, dataUri: unknown, wid
 
 /**
  * Şablondaki kaşeyi ayarlara kopyalar. Şablon bu firmanın ya da (şubede) ana
- * firmanın olmalı — id istemciden geliyor, başka firmanın kaşesi alınamasın.
+ * firmanın olmalı, ya da onların şablonunun aynı Mysoft hesabındaki tasarımı — id
+ * istemciden geliyor, başka firmanın kaşesi alınamasın.
  */
 export async function copyTemplateStamp(companyId: string, templateId: unknown, widthMm: unknown) {
   if (typeof templateId !== "string" || !templateId) throw new StampImageError("Şablon seçilmedi.")
@@ -194,8 +249,14 @@ export async function copyTemplateStamp(companyId: string, templateId: unknown, 
     where: { id: templateId },
     select: { companyId: true, hidden: true, options: true },
   })
-  const allowed = [companyId, company?.parentCompanyId].filter(Boolean)
-  if (!template || template.hidden || !allowed.includes(template.companyId)) {
+  const allowed = [companyId, company?.parentCompanyId].filter((id): id is string => Boolean(id))
+  const ownTemplate = Boolean(template && !template.hidden && allowed.includes(template.companyId))
+  // Tasarımı aynı Mysoft hesabındaki başka kayıtta duran şablon: listeyle aynı kural.
+  const foreignDesign =
+    Boolean(template) &&
+    !ownTemplate &&
+    (await foreignStampTemplates(allowed)).some((r) => r.designTemplateId === templateId)
+  if (!template || (!ownTemplate && !foreignDesign)) {
     throw new StampImageError("Şablon bulunamadı.")
   }
   const buffer = decodeDataUri(normalizeDesignOptions(template.options).stampDataUri)

@@ -167,12 +167,62 @@ görsel hazırlığı `stamp-image.ts` (PNG'ye çevirir; pdfmake WebP/GIF basama
 - Kaşe `Company` kolonu DEĞİLDİR: select'siz firma okumaları 100 KB'lık görseli her
   isteğe taşırdı. Tablo okunamazsa makbuz şablon kaşesine düşer, sebep loglanır.
 - "Şablondan al" şablonun firmaya (şubede ana firmaya) ait olduğunu denetler; id istemciden gelir.
+  İstisna: firmanın şablonunun tasarımı aynı Mysoft hesabındaki başka kayıttaysa o tasarım
+  (aşağıda "Şablonun tasarımı başka Kobipo kaydında durabilir").
 - TERS YÖN: tasarımcıdaki "Ayarlardaki firma kaşesini kullan" yalnız FORMU doldurur
   (`templateBoxFromSettings`: mm → px kutu). Mevcut şablonlar kendiliğinden güncellenmez —
   her yükleme e-Arşiv onayına girer (yukarıya bak); kaydetmek kullanıcının elindedir.
 - Uç `/api/firma-kasesi`: Firma Bilgileri yazar, Belge Şablonları yalnız okur (page-access).
 - Ölçüm: `TEST_BASE_URL=… node scripts/test-firma-kasesi.mjs` (Reypo Medya; başta ayar
   kaşesi varsa durur, açtığı her şeyi siler).
+
+## GİB'e gitmemiş faturanın PDF'i teklif gibidir, GİB'i taklit etmez, KDV yazmaz
+
+Fatura önizlemesindeki "PDF İndir"/"Yazdır" (Manuel fatura, gönderilmemiş e-belge, alış)
+resmî OLMAYAN Kobipo belgesini basar: sağ üstte firma logosu, iskontolar ayrı satır, belgede
+KDV YOK (ne sütun ne satır), tutarlar VERGİLER DAHİL, dip toplam "GENEL TOPLAM", altlıkta
+"Bilgi amaçlıdır, resmî fatura yerine geçmez". 2026-10-08'e kadar bu yol GİB düzenini
+taklit ediyordu (e-ARŞİV FATURA kutusu, Senaryo/ETTN, KDV Matrahı, Ödenecek Tutar) —
+müşteriye verilen kâğıt resmî belge gibi duruyordu (kullanıcı kararı). Belge
+`lib/pdf/documents/fatura-document.ts`, veri `fatura-data.ts` (iki uç da oradan:
+`/api/e-donusum/invoices/[id]/preview-pdf` ve `/api/faturalar/[id]/pdf`). GİB düzeni yalnız
+editörün "Önizle (GİB)"sünde kalır (`gib-invoice-pdf.ts`); GİB'e gitmiş belgede resmî PDF
+Mysoft'tandır.
+
+- **Vergiler dahil çevrim kalemin KAYITLI vergilerinden** (KDV + ÖTV + diğer + GEKAP), oran
+  tahmin edilmez; birim fiyat ve iskonto aynı oranla büyür. KDV sütunu kaldırılıp kalemler
+  KDV hariç bırakılsaydı satırlar toplamı vermezdi (9.500 → GENEL TOPLAM 11.400, açıklamasız).
+- Toplam KAYITTAN gelir (`totalAmount`). Kalem vergileri genel iskonto/ilave UYGULANMADAN
+  saklandığı için genel iskontonun vergiler dahil karşılığı FARKTAN bulunur; tevkifat ayrı
+  satır ("Tevkifat"). Genel iskontosuz eski kayıtta kalan kuruş "Yuvarlama" satırında görünür.
+  Ölçüm (2026-10-08, 812 fatura): dip toplam hepsinde kayıtlı tutarı veriyor, 10'unda 1 kuruş
+  "Yuvarlama" satırı çıkıyor. Kural `lib/pdf/documents/fatura-data.test.ts`te.
+- Logo: firmada logo alanı YOK. Kaynak `lib/company/logo.ts`: Belge Şablonları tasarımcısının
+  logosu (aktif → belgenin türüne uyan → en yeni, gizli hariç) → fiş tasarımının logosu →
+  (yalnız ŞUBEDE) ana firmanınkiler; ek firma devralmaz. Hiçbiri yoksa KOBİPO logosu
+  (`public/yatay.png`, küçük basılır; dosya `next.config.js > outputFileTracingIncludes` ile
+  pakete girer). Okunamazsa sebep loglanır.
+- Tasarımı başka kayıtta duran şablonun logosu o kayıttan okunur (aşağıdaki bölüm).
+- "Yazdır" `window.print()` DEĞİLDİR (ekranı basıyordu): PDF gizli çerçevede yazdırılır
+  (`lib/pdf/print-pdf.ts`); GİB'e gitmiş belgede resmî PDF basılır.
+
+## Şablonun tasarımı başka Kobipo kaydında durabilir (logo ve kaşe)
+
+Belge Şablonları listesi Mysoft'tan (mükellefin hesabından) gelir: firma, aynı Mysoft
+hesabını kullanan BAŞKA bir Kobipo kaydında tasarlanmış şablonu görür ve aktif yapar; o
+zaman firmanın satırında tasarım (`options`) yoktur. Eren Forklift'in üç kaydı aynı VKN ve
+Mysoft kullanıcısını paylaşıyor (2026-10-08): ekran görüntüsündeki kayıt şablonu aktif
+yapmış, logo/kaşe başka kayıtta kalmış — fatura PDF'i ve makbuz ikisini de bulamıyordu.
+Kural tek yerde: `lib/company/template-design.ts` (saf) + `template-design.server.ts`;
+logo (`logo.server.ts`) ve kaşe (`stamp.server.ts`: makbuz, "Şablondan al" listesi ve
+kopyalama denetimi) oradan geçer.
+
+- Tasarım yalnız AYNI mükellef VKN'si + AYNI Mysoft kullanıcısı + aynı ortamdaki kayıttan
+  alınır (`designIdentity`). "Aktif yap" ucu Mysoft'a sormadan satır açtığı için yalnız VKN
+  eşleşmesi, başkasının VKN'sini giren birine o firmanın logosunu/kaşesini verirdi.
+- Aynı ad + tip birden çok kayıtta tasarlandıysa en son güncellenen (Mysoft'a en son o yüklendi).
+- Ölçüm (2026-10-08): şablon kaşesi basılan 9 firmadan yalnız biri (Eren Forklift kopya
+  kaydı) kaşeyi başka kayıttaki tasarımdan alıyor; diğerlerinin kaynağı değişmedi.
 
 ## Kontör YALNIZ Kobipo bayiliği altındaki mükellefe yüklenir
 

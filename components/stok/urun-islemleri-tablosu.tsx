@@ -27,6 +27,7 @@ import { fetchExportFile, downloadExport, type ExportFormat } from "@/components
 import { useCanExport } from "@/components/dashboard/write-guard"
 import { withCompanyHref } from "@/lib/company/href"
 import { formatMoney } from "@/lib/format"
+import { printPdfBlob } from "@/lib/pdf/print-pdf"
 import { trMatcher } from "@/lib/text/tr-fold"
 import { cn } from "@/lib/utils"
 import {
@@ -213,28 +214,7 @@ export function UrunIslemleriTablosu({
         toast({ title: "Yazdırılamadı", description: file.error, variant: "destructive" })
         return
       }
-      const url = URL.createObjectURL(file.blob)
-      const frame = document.createElement("iframe")
-      frame.style.position = "fixed"
-      frame.style.width = "0"
-      frame.style.height = "0"
-      frame.style.border = "0"
-      frame.src = url
-      frame.onload = () => {
-        try {
-          frame.contentWindow?.focus()
-          frame.contentWindow?.print()
-        } catch {
-          // Çerçevede yazdırma engellenirse PDF yeni sekmede açılır; oradan yazdırılır.
-          window.open(url, "_blank")
-        }
-        // Yazdırma penceresi kapanana kadar dosya yaşamalı.
-        setTimeout(() => {
-          frame.remove()
-          URL.revokeObjectURL(url)
-        }, 60_000)
-      }
-      document.body.appendChild(frame)
+      printPdfBlob(file.blob)
     } finally {
       setBusy(null)
     }

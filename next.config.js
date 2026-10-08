@@ -36,8 +36,9 @@ const nextConfig = {
   outputFileTracingIncludes: {
     "/api/e-donusum/**": ["./lib/integrations/e-invoice/sample-templates/**"],
     // PDF fontları fs ile okunuyor (lib/pdf/doc/font.ts); Next'in izleyicisi
-    // dinamik yolu göremediği için fonksiyon paketine açıkça eklenir.
-    "/api/**": ["./node_modules/dejavu-fonts-ttf/ttf/**", "./public/fonts/**"],
+    // dinamik yolu göremediği için fonksiyon paketine açıkça eklenir. Kobipo logosu da
+    // (logosu olmayan firmanın fatura PDF'i, lib/company/logo.server.ts) aynı yoldan.
+    "/api/**": ["./node_modules/dejavu-fonts-ttf/ttf/**", "./public/fonts/**", "./public/yatay.png"],
     // PDF raster (belge tarama): pdfjs standart 14 fontu ve CJK haritalarını
     // dosya sisteminden okur (unpdf `standardFontDataUrl`i yerel paketten çözer).
     // İzleyici bu dinamik yolu göremez; Vercel paketine açıkça eklenir.

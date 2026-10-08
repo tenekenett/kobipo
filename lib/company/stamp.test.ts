@@ -83,6 +83,12 @@ describe("pickStampSource", () => {
     ).toEqual({ kind: "template", companyId: "ana", templateId: "ana-sablonu" })
   })
 
+  it("tasarımı başka kayıtta duran şablonda kaşe o kayıttaki satırdan okunur", () => {
+    expect(
+      pickStampSource({ ...base, templates: [c({ id: "earsiv", isActive: true, designTemplateId: "kardes-earsiv" })] }),
+    ).toEqual({ kind: "template", companyId: "firma", templateId: "kardes-earsiv" })
+  })
+
   it("başka firmanın kaşesi seçilmez; kaşe yoksa null", () => {
     expect(pickStampSource({ ...base, settingsCompanyIds: ["baska"], templates: [c({ companyId: "baska" })] })).toBeNull()
     expect(pickStampSource(base)).toBeNull()

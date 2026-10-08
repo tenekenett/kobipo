@@ -30,6 +30,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog-provider"
 import { useToast } from "@/components/ui/use-toast"
 import { parseGibStatus } from "@/lib/integrations/e-invoice/status-display"
 import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
+import { printPdfFromUrl } from "@/lib/pdf/print-pdf"
 import { looksLikeCuid } from "@/lib/slug"
 import { buildInvoiceLabelItems } from "@/lib/labels/invoice-label-items"
 import { isOtherTaxInVatBase } from "@/lib/integrations/e-invoice/gib-tax-types"
@@ -170,6 +171,7 @@ export default function FaturaOnizlemePage() {
   const [isDownloadingGibPdf, setIsDownloadingGibPdf] = useState(false)
   const [isDownloadingIncomingDoc, setIsDownloadingIncomingDoc] = useState(false)
   const [isDownloadingPreviewPdf, setIsDownloadingPreviewPdf] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
   const [isCancelling, setIsCancelling] = useState(false)
   const [isSendingToProvider, setIsSendingToProvider] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -290,8 +292,8 @@ export default function FaturaOnizlemePage() {
 
   const handleDownloadPDF = async () => {
     if (!invoice) return
-    // "PDF İndir": taslak sayfasındaki (editör) GİB düzeninde ön izleme PDF'inin
-    // kaydedilmiş fatura sürümünü indirir. Resmî GİB PDF'i (ETTN'li) ayrı buton.
+    // "PDF İndir": faturanın RESMÎ OLMAYAN Kobipo belgesi (teklif düzeni, logolu —
+    // lib/pdf/documents/fatura-document.ts). Resmî GİB PDF'i (ETTN'li) ayrı buton.
     // Yeni sekmede açılır (lib/pdf/open-in-new-tab.ts) — ilk await'ten önce çağrılmalı.
     const idForPdf = invoice.id || invoiceId
     const companyQs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
@@ -299,6 +301,32 @@ export default function FaturaOnizlemePage() {
     // Kısa süre meşgul: çift tıklama iki sekme açmasın.
     setIsDownloadingPreviewPdf(true)
     setTimeout(() => setIsDownloadingPreviewPdf(false), 1500)
+  }
+
+  // "Yazdır" EKRANI değil BELGEYİ basar (lib/pdf/print-pdf.ts) — `window.print()` menüyü,
+  // düğmeleri ve kartları kâğıda döküyordu. Basılan, ekrandaki PDF düğmesinin belgesidir:
+  // GİB'e gitmiş e-belgede resmî PDF, diğerlerinde "PDF İndir"in belgesi. Gelen e-faturadan
+  // dönüşen alışta göndericinin belgesi yeni sekmede açılır (GİB HTML'i de olabilir; o
+  // içerik sayfanın kendi kökeninde bir çerçeveye konmaz).
+  const handlePrint = async () => {
+    if (!invoice) return
+    if (invoice.incomingSource) return handleDownloadIncomingDoc()
+    const official =
+      invoice.status === "SENT" &&
+      Boolean(invoice.uuid) &&
+      (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE")
+    const companyQs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+    const url = official
+      ? `/api/e-donusum/invoices/${invoice.id}/pdf`
+      : `/api/e-donusum/invoices/${invoice.id || invoiceId}/preview-pdf${companyQs}`
+    setIsPrinting(true)
+    if (official) toast({ title: "Resmî PDF alınıyor…", description: "Yazdırma penceresi birkaç saniye içinde açılacak." })
+    try {
+      const result = await printPdfFromUrl(url)
+      if (!result.ok) toast({ title: "Yazdırılamadı", description: result.error, variant: "destructive" })
+    } finally {
+      setIsPrinting(false)
+    }
   }
 
   const handleCheckStatus = async () => {
@@ -961,8 +989,8 @@ export default function FaturaOnizlemePage() {
                   <DropdownMenuSeparator />
                 </WriteAction>
               )}
-              <DropdownMenuItem className="cursor-pointer" onClick={() => window.print()}>
-                <Printer className="mr-2 h-4 w-4" />
+              <DropdownMenuItem className="cursor-pointer" onClick={handlePrint} disabled={isPrinting}>
+                {isPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
                 Yazdır
               </DropdownMenuItem>
               {invoice.status === "SENT" && (invoice.invoiceType === "E_INVOICE" || invoice.invoiceType === "E_ARCHIVE") && (
