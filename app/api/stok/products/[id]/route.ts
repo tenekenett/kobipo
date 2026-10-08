@@ -310,6 +310,7 @@ export const PUT = withApiErrors(async function PUT(
       name,
       barcode,
       category,
+      brand,
       shelfCode,
       unit,
       vatRate,
@@ -384,6 +385,12 @@ export const PUT = withApiErrors(async function PUT(
           category !== undefined
             ? (String(category).trim() ? String(category).trim() : null)
             : product.category,
+        // Gövdede yoksa dokunulmaz: bu ucu markayı bilmeyen formlar da çağırıyor
+        // (menü ekranı, fiyat güncelleme) — göndermedikleri için silinmemeli.
+        brand:
+          brand !== undefined
+            ? (String(brand ?? "").trim() ? String(brand).trim() : null)
+            : product.brand,
         // Gövdede yoksa dokunulmaz: bu ucu rafı hiç bilmeyen formlar da çağırıyor.
         shelfCode:
           shelfCode !== undefined

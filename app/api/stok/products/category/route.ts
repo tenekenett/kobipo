@@ -12,6 +12,11 @@
  *
  * Yol `/products/category`; `[id]` ile çakışmaz — Next.js statik segmenti
  * dinamik olana tercih eder.
+ *
+ * MARKA da buradan geçer (`field=brand`): aynı iki-yerde-yaşama modeli
+ * (CompanyDefinition type=PRODUCT_BRAND + ürünün `brand` metni). Ayrı bir uç
+ * açılsaydı sayfa kapısına (lib/page-access.ts) ikinci bir kural yazmak ve iki
+ * kopyayı aynı tutmak gerekirdi.
  */
 
 import { NextResponse } from "next/server"
@@ -22,6 +27,15 @@ import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { prisma } from "@/lib/db/prisma"
 
 export const dynamic = "force-dynamic"
+
+/** Toplu işlemin dokunabileceği ürün alanları — gövdeden gelen ad DOĞRUDAN kolona gitmez. */
+type GroupField = "category" | "brand"
+
+function asGroupField(value: unknown): GroupField | null {
+  if (value == null || value === "" || value === "category") return "category"
+  if (value === "brand") return "brand"
+  return null
+}
 
 /**
  * Kategori → kaç ürün. Sayım SUNUCUDA yapılır: Stok ekranındaki ürün listesi
@@ -42,15 +56,33 @@ export const GET = withApiErrors(async function GET(request: Request) {
     }
     await ensureCompanyAccess(companyId)
 
-    const grouped = await prisma.product.groupBy({
-      by: ["category"],
-      where: { companyId, category: { not: null } },
-      _count: { _all: true },
-    })
+    const field = asGroupField(searchParams.get("field"))
+    if (!field) {
+      return NextResponse.json({ error: "Geçersiz alan (field)" }, { status: 400 })
+    }
+
+    // Yanıt şekli alan ne olursa olsun `{ category, count }` — kategori
+    // penceresinin mevcut okuyucusu kırılmasın diye anahtar adı korunuyor.
+    const grouped =
+      field === "brand"
+        ? (
+            await prisma.product.groupBy({
+              by: ["brand"],
+              where: { companyId, brand: { not: null } },
+              _count: { _all: true },
+            })
+          ).map((g) => ({ value: g.brand, count: g._count._all }))
+        : (
+            await prisma.product.groupBy({
+              by: ["category"],
+              where: { companyId, category: { not: null } },
+              _count: { _all: true },
+            })
+          ).map((g) => ({ value: g.category, count: g._count._all }))
 
     const counts = grouped
-      .filter((g) => (g.category ?? "").trim())
-      .map((g) => ({ category: (g.category as string).trim(), count: g._count._all }))
+      .filter((g) => (g.value ?? "").trim())
+      .map((g) => ({ category: (g.value as string).trim(), count: g.count }))
       .sort((a, b) => a.category.localeCompare(b.category, "tr-TR"))
 
     return NextResponse.json(counts)
@@ -81,9 +113,17 @@ export const PATCH = withApiErrors(async function PATCH(request: Request) {
     }
     await ensureCompanyWrite(companyId)
 
+    const field = asGroupField(body.field)
+    if (!field) {
+      return NextResponse.json({ error: "Geçersiz alan (field)" }, { status: 400 })
+    }
+
     const from = typeof body.from === "string" ? body.from.trim() : ""
     if (!from) {
-      return NextResponse.json({ error: "Değiştirilecek kategori (from) gerekli" }, { status: 400 })
+      return NextResponse.json(
+        { error: field === "brand" ? "Değiştirilecek marka (from) gerekli" : "Değiştirilecek kategori (from) gerekli" },
+        { status: 400 }
+      )
     }
 
     // `to` null/boş → kategoriyi boşalt. Boş metin DEĞİL null yazılır: ürün
@@ -91,10 +131,16 @@ export const PATCH = withApiErrors(async function PATCH(request: Request) {
     const rawTo = body.to
     const to = typeof rawTo === "string" && rawTo.trim() ? rawTo.trim() : null
 
-    const result = await prisma.product.updateMany({
-      where: { companyId, category: from },
-      data: { category: to },
-    })
+    const result =
+      field === "brand"
+        ? await prisma.product.updateMany({
+            where: { companyId, brand: from },
+            data: { brand: to },
+          })
+        : await prisma.product.updateMany({
+            where: { companyId, category: from },
+            data: { category: to },
+          })
 
     return NextResponse.json({ updated: result.count })
   } catch (error: any) {

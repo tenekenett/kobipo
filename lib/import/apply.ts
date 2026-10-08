@@ -104,6 +104,7 @@ export async function applyProductRow(
       barcode: barcode || null,
       shelfCode: get("shelfcode") || null,
       category: get("category") || null,
+      brand: get("brand") || null,
       unit: get("unit") || "ADET",
       stockQuantity: parseAmountCell(get("stockquantity"), "Stok Miktarı") ?? 0,
       minStockLevel: parseAmountCell(get("minstocklevel"), "Min. Stok") ?? null,

@@ -47,6 +47,7 @@ enum CompanyDefinitionType {
   CLASS_1
   CLASS_2
   PRODUCT_CATEGORY
+  PRODUCT_BRAND
 }
 
 // Kontör satın alma sipariş durumları (bayi/İş Ortağı modeli)
@@ -839,6 +840,11 @@ model Product {
   barcode                  String?
   slug                     String   @default("")
   category                 String? // Ürün kategorisi/grubu (serbest metin; varyant ileride)
+  // Ürünün markası. Kategoriyle AYNI model: serbest metin, öneri listesi firma
+  // tanımında (CompanyDefinition type=PRODUCT_BRAND). İki ayrı eksendir — "Bosch"
+  // bir kategori değil, "Matkap" bir marka değil; ikisini tek alana sıkıştırmak
+  // süzgeçte "Bosch matkapları"nı soramaz hale getirirdi.
+  brand                    String?
   // Ürünün depodaki fiziksel yeri — raf/koridor/göz numarası ("A-04", "R12/3").
   // Serbest metin: her firma kendi raf şemasını kullanır, doğrulanmaz.
   //
@@ -914,6 +920,7 @@ model Product {
   @@unique([companyId, slug])
   @@index([companyId])
   @@index([companyId, category])
+  @@index([companyId, brand])
   @@map("products")
 }
 

@@ -80,6 +80,7 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       companyId,
       search: params.get("search"),
       category: params.get("category"),
+      brand: params.get("brand"),
       kind: params.get("kind"),
       warehouseId: params.get("warehouseId"),
       lowStock: params.get("lowStock"),

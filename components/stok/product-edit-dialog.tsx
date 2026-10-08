@@ -21,8 +21,8 @@ import {
   productKindOptions,
 } from "@/lib/stock/product-kind"
 import { cn } from "@/lib/utils"
-import { Plus } from "lucide-react"
 import { useTcmbRates } from "@/lib/exchange/use-rates"
+import { ProductGroupSelect } from "@/components/stok/product-group-select"
 
 /**
  * Ürün detay sayfasında (ve gerekirse başka yerlerde) yeniden kullanılabilen,
@@ -37,6 +37,7 @@ export interface EditableProduct {
   name: string
   barcode?: string | null
   category?: string | null
+  brand?: string | null
   /** Depodaki fiziksel yer (raf/koridor/göz) — serbest metin. */
   shelfCode?: string | null
   unit: string
@@ -97,6 +98,7 @@ export function ProductEditDialog({
     name: "",
     barcode: "",
     category: "",
+    brand: "",
     shelfCode: "",
     unit: "ADET",
     vatRate: "20",
@@ -115,9 +117,7 @@ export function ProductEditDialog({
   const productKind = productKindOf(formData)
 
   const [categories, setCategories] = useState<{ id: string; label: string }[]>([])
-  const [addingFormCategory, setAddingFormCategory] = useState(false)
-  const [formNewCategory, setFormNewCategory] = useState("")
-  const [categorySaving, setCategorySaving] = useState(false)
+  const [brands, setBrands] = useState<{ id: string; label: string }[]>([])
 
   const [warehouses, setWarehouses] = useState<{ id: string; name: string; isDefault?: boolean }[]>([])
   const [editWarehouseId, setEditWarehouseId] = useState("")
@@ -136,6 +136,7 @@ export function ProductEditDialog({
       name: product.name || "",
       barcode: product.barcode || "",
       category: product.category || "",
+      brand: product.brand || "",
       shelfCode: product.shelfCode || "",
       unit: product.unit || "ADET",
       vatRate: String(product.vatRate ?? "20"),
@@ -159,20 +160,21 @@ export function ProductEditDialog({
       isIngredient: product.isIngredient === true,
     })
     setMarginEdit(null)
-    setAddingFormCategory(false)
-    setFormNewCategory("")
   }, [open, product])
 
-  // Bağımlı verileri (kategori, depo, kur, ürünün mevcut deposu) dialog açılınca çek.
+  // Bağımlı verileri (kategori, marka, depo, kur, ürünün mevcut deposu) dialog açılınca çek.
   useEffect(() => {
     if (!open || !companyId) return
 
-    fetch(`/api/company/definitions?companyId=${companyId}&type=PRODUCT_CATEGORY`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) =>
-        setCategories(Array.isArray(data) ? data.map((d: any) => ({ id: d.id, label: d.label })) : []),
-      )
-      .catch(() => {})
+    const loadDefinitions = (type: string, set: (rows: { id: string; label: string }[]) => void) =>
+      fetch(`/api/company/definitions?companyId=${companyId}&type=${type}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) =>
+          set(Array.isArray(data) ? data.map((d: any) => ({ id: d.id, label: d.label })) : []),
+        )
+        .catch(() => {})
+    void loadDefinitions("PRODUCT_CATEGORY", setCategories)
+    void loadDefinitions("PRODUCT_BRAND", setBrands)
 
     Promise.all([
       fetch(`/api/depolar?companyId=${companyId}`).then((r) => (r.ok ? r.json() : [])),
@@ -233,47 +235,20 @@ export function ProductEditDialog({
     setFormData((prev) => ({ ...prev, salePrice: String(Math.round(display * 100) / 100) }))
   }
 
+  // Kayıtlı değer listede yoksa ProductGroupSelect onu kendisi ekler.
   const categoryOptions = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...categories.map((c) => c.label),
-          ...(formData.category ? [formData.category] : []),
-        ]),
-      )
-        .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b, "tr")),
-    [categories, formData.category],
+    () => categories.map((c) => c.label).sort((a, b) => a.localeCompare(b, "tr")),
+    [categories],
+  )
+  const brandOptions = useMemo(
+    () => brands.map((c) => c.label).sort((a, b) => a.localeCompare(b, "tr")),
+    [brands],
   )
 
-  const handleAddFormCategory = async () => {
-    const label = formNewCategory.trim()
-    if (!label || !companyId) return
-    setCategorySaving(true)
-    try {
-      const res = await fetch(`/api/company/definitions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, type: "PRODUCT_CATEGORY", label }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Kategori eklenemedi")
-      setCategories((prev) =>
-        prev.some((c) => c.label === label) ? prev : [...prev, { id: data?.id || label, label }],
-      )
-      setFormData((prev) => ({ ...prev, category: label }))
-      setAddingFormCategory(false)
-      setFormNewCategory("")
-    } catch (e) {
-      toast({
-        title: "Hata",
-        description: e instanceof Error ? e.message : "Kategori eklenemedi",
-        variant: "destructive",
-      })
-    } finally {
-      setCategorySaving(false)
-    }
-  }
+  /** Satır içi açılan tanımı yerel listeye ekler (tekrar çekmeye gerek yok). */
+  const appendDefinition =
+    (set: React.Dispatch<React.SetStateAction<{ id: string; label: string }[]>>) => (label: string) =>
+      set((prev) => (prev.some((c) => c.label === label) ? prev : [...prev, { id: label, label }]))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -350,73 +325,29 @@ export function ProductEditDialog({
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-category">Kategori</Label>
-              {addingFormCategory ? (
-                <div className="flex gap-2">
-                  <Input
-                    autoFocus
-                    value={formNewCategory}
-                    onChange={(e) => setFormNewCategory(e.target.value)}
-                    placeholder="Yeni kategori adı"
-                    disabled={isLoading || categorySaving}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        void handleAddFormCategory()
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    onClick={() => void handleAddFormCategory()}
-                    disabled={categorySaving || !formNewCategory.trim()}
-                    className="shrink-0"
-                  >
-                    Ekle
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setAddingFormCategory(false)
-                      setFormNewCategory("")
-                    }}
-                    disabled={categorySaving}
-                    className="shrink-0"
-                  >
-                    İptal
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <select
-                    id="edit-category"
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    disabled={isLoading}
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">— Kategori yok —</option>
-                    {categoryOptions.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setFormNewCategory("")
-                      setAddingFormCategory(true)
-                    }}
-                    disabled={isLoading}
-                    className="shrink-0"
-                    title="Yeni kategori ekle"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
+              <ProductGroupSelect
+                id="edit-category"
+                kind="category"
+                companyId={companyId}
+                value={formData.category}
+                options={categoryOptions}
+                onChange={(v) => setFormData((prev) => ({ ...prev, category: v }))}
+                onCreated={appendDefinition(setCategories)}
+                disabled={isLoading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-brand">Marka</Label>
+              <ProductGroupSelect
+                id="edit-brand"
+                kind="brand"
+                companyId={companyId}
+                value={formData.brand}
+                options={brandOptions}
+                onChange={(v) => setFormData((prev) => ({ ...prev, brand: v }))}
+                onCreated={appendDefinition(setBrands)}
+                disabled={isLoading}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-shelf-code">Raf No</Label>

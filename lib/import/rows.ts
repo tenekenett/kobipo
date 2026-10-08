@@ -121,6 +121,7 @@ export const productHeaderAliases: Record<string, string[]> = {
   barcode: ["barcode", "barkod"],
   shelfcode: ["shelfcode", "rafno", "raf"],
   category: ["category", "kategori"],
+  brand: ["brand", "marka"],
   unit: ["unit", "birim"],
   // "Depo Stoğu": dışa aktarım depo süzgeciyle alındığında başlık böyle gelir.
   stockquantity: ["stockquantity", "stokmiktari", "stok", "depostogu"],
@@ -270,6 +271,7 @@ export function productUpdateData(
     ["barcode", get("barcode"), (raw) => raw],
     ["shelfCode", get("shelfcode"), (raw) => raw],
     ["category", get("category"), (raw) => raw],
+    ["brand", get("brand"), (raw) => raw],
     ["unit", get("unit"), (raw) => raw],
     ["minStockLevel", get("minstocklevel"), (raw) => parseAmountCell(raw, "Min. Stok")],
     ["purchasePrice", get("purchaseprice"), (raw) => parseAmountCell(raw, "Alış Fiyatı")],

@@ -7,7 +7,7 @@ import { ensureCompanyAccess } from "@/lib/middleware/company"
 
 export const dynamic = "force-dynamic"
 
-const DEFINITION_TYPES = ["CLASS_1", "CLASS_2", "PRODUCT_CATEGORY"] as const
+const DEFINITION_TYPES = ["CLASS_1", "CLASS_2", "PRODUCT_CATEGORY", "PRODUCT_BRAND"] as const
 type DefinitionType = (typeof DEFINITION_TYPES)[number]
 
 function asDefinitionType(value: unknown): DefinitionType | null {

@@ -37,8 +37,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
-import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags, X, PackagePlus } from "lucide-react"
+import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tags, X, PackagePlus, BadgeCheck } from "lucide-react"
 import { CategoryManagerDialog } from "@/components/stok/category-manager-dialog"
+import { ProductGroupSelect } from "@/components/stok/product-group-select"
 import {
   StockMovementDialog,
   type StockMovementMode,
@@ -66,6 +67,7 @@ interface Product {
   name: string
   barcode?: string
   category?: string | null
+  brand?: string | null
   /** Depodaki fiziksel yer (raf/koridor/göz) — serbest metin. */
   shelfCode?: string | null
   unit: string
@@ -155,6 +157,7 @@ const emptyProductForm = {
   name: "",
   barcode: "",
   category: "",
+  brand: "",
   shelfCode: "",
   unit: "ADET",
   vatRate: "20",
@@ -212,6 +215,7 @@ export default function StokPage() {
   const [kindFilter, setKindFilter] = useState<ProductKind | null>(null)
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("ALL")
+  const [brandFilter, setBrandFilter] = useState("ALL")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -273,13 +277,12 @@ export default function StokPage() {
   const [originalWarehouseId, setOriginalWarehouseId] = useState("")
   const [warehouseFilter, setWarehouseFilter] = useState("ALL")
   const [warehouseStocks, setWarehouseStocks] = useState<Array<{ warehouseId: string; warehouseName: string; productId: string; quantity: number }>>([])
-  // Yönetilen kategori listesi (CompanyDefinition type=PRODUCT_CATEGORY)
+  // Yönetilen kategori ve marka listeleri (CompanyDefinition type=PRODUCT_CATEGORY /
+  // PRODUCT_BRAND). Ürün formundaki satır içi "+" yeni tanımı ProductGroupSelect'te yazar.
   const [categories, setCategories] = useState<{ id: string; label: string }[]>([])
+  const [brands, setBrands] = useState<{ id: string; label: string }[]>([])
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
-  const [categorySaving, setCategorySaving] = useState(false)
-  // Ürün formu içinde anında yeni kategori ekleme
-  const [addingFormCategory, setAddingFormCategory] = useState(false)
-  const [formNewCategory, setFormNewCategory] = useState("")
+  const [isBrandDialogOpen, setIsBrandDialogOpen] = useState(false)
 
   /**
    * Arama kutusu her tuşta istek atmasın diye geciktirilir; ayrıca YARIŞAN
@@ -301,7 +304,10 @@ export default function StokPage() {
   }, [companyId, debouncedSearch])
 
   useEffect(() => {
-    if (companyId) fetchCategories()
+    if (companyId) {
+      fetchCategories()
+      fetchBrands()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
 
@@ -319,65 +325,29 @@ export default function StokPage() {
   }, [companyId])
 
   /**
-   * Ürün formundaki kategori seçici için öneri listesi. Kategori PENCERESİ
-   * kendi verisini kendi çeker (components/stok/category-manager-dialog);
+   * Ürün formundaki kategori/marka seçicileri için öneri listesi. Yönetim
+   * PENCERESİ kendi verisini kendi çeker (components/stok/category-manager-dialog);
    * burada sayıma da gerek yok.
    */
-  const fetchCategories = async () => {
+  const fetchDefinitionLabels = async (
+    type: "PRODUCT_CATEGORY" | "PRODUCT_BRAND",
+    set: (rows: { id: string; label: string }[]) => void
+  ) => {
     if (!companyId) return
     try {
-      const res = await fetch(
-        `/api/company/definitions?companyId=${companyId}&type=PRODUCT_CATEGORY`,
-        { cache: "no-store" }
-      )
+      const res = await fetch(`/api/company/definitions?companyId=${companyId}&type=${type}`, {
+        cache: "no-store",
+      })
       if (res.ok) {
         const data = await res.json()
-        setCategories(
-          Array.isArray(data) ? data.map((d: any) => ({ id: d.id, label: d.label })) : []
-        )
+        set(Array.isArray(data) ? data.map((d: any) => ({ id: d.id, label: d.label })) : [])
       }
     } catch {
       /* sessizce geç */
     }
   }
-
-  // Yeni kategori oluşturur; başarılıysa label'ı döndürür (forma seçtirmek için).
-  const createCategory = async (label: string): Promise<string | null> => {
-    const l = label.trim()
-    if (!l || !companyId) return null
-    setCategorySaving(true)
-    try {
-      const res = await fetch(`/api/company/definitions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, type: "PRODUCT_CATEGORY", label: l }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || "Kategori eklenemedi")
-      await fetchCategories()
-      return l
-    } catch (e) {
-      toast({
-        title: "Hata",
-        description: e instanceof Error ? e.message : "Kategori eklenemedi",
-        variant: "destructive",
-      })
-      return null
-    } finally {
-      setCategorySaving(false)
-    }
-  }
-
-
-  // Ürün formu içinden yeni kategori ekleyip forma seçtirir.
-  const handleAddFormCategory = async () => {
-    const created = await createCategory(formNewCategory)
-    if (created) {
-      setFormData((prev) => ({ ...prev, category: created }))
-      setAddingFormCategory(false)
-      setFormNewCategory("")
-    }
-  }
+  const fetchCategories = () => fetchDefinitionLabels("PRODUCT_CATEGORY", setCategories)
+  const fetchBrands = () => fetchDefinitionLabels("PRODUCT_BRAND", setBrands)
 
   const fetchProducts = async () => {
     if (!companyId) return
@@ -482,6 +452,7 @@ export default function StokPage() {
       name: product.name,
       barcode: product.barcode || "",
       category: product.category || "",
+      brand: product.brand || "",
       shelfCode: product.shelfCode || "",
       unit: product.unit,
       vatRate: String(product.vatRate),
@@ -538,12 +509,18 @@ export default function StokPage() {
     }
   }
 
-  // Filtre/seçim için kategori listesi: yönetilen kategoriler + ürünlerde geçen
-  // (yönetilen listede olmayan eski) etiketler birleştirilir.
+  // Filtre/seçim için kategori ve marka listeleri: yönetilen tanımlar + ürünlerde
+  // geçen (yönetilen listede olmayan eski / içe aktarılmış) etiketler birleştirilir.
   const categoryOptions = Array.from(
     new Set([
       ...categories.map((c) => c.label),
       ...products.map((p) => (p.category || "").trim()).filter(Boolean),
+    ])
+  ).sort((a, b) => a.localeCompare(b, "tr"))
+  const brandOptions = Array.from(
+    new Set([
+      ...brands.map((c) => c.label),
+      ...products.map((p) => (p.brand || "").trim()).filter(Boolean),
     ])
   ).sort((a, b) => a.localeCompare(b, "tr"))
 
@@ -562,6 +539,9 @@ export default function StokPage() {
   if (categoryFilter !== "ALL") {
     baseProducts = baseProducts.filter((p) => (p.category || "") === categoryFilter)
   }
+  if (brandFilter !== "ALL") {
+    baseProducts = baseProducts.filter((p) => (p.brand || "") === brandFilter)
+  }
   if (onlyLowStock) baseProducts = baseProducts.filter(isLowStock)
 
   const kindCounts = new Map<ProductKind, number>(
@@ -574,7 +554,7 @@ export default function StokPage() {
 
   // Süzgeçler tüm kayıt üzerinde çalışır; yalnız çizilen dilim sayfalanır.
   const paged = usePagedRows(visibleProducts, {
-    resetKey: `${debouncedSearch}|${kindFilter ?? ""}|${categoryFilter}|${warehouseFilter}|${onlyLowStock}`,
+    resetKey: `${debouncedSearch}|${kindFilter ?? ""}|${categoryFilter}|${brandFilter}|${warehouseFilter}|${onlyLowStock}`,
   })
 
   if (!companyId) {
@@ -589,6 +569,7 @@ export default function StokPage() {
     (search ? 1 : 0) +
     (kindFilter ? 1 : 0) +
     (categoryFilter !== "ALL" ? 1 : 0) +
+    (brandFilter !== "ALL" ? 1 : 0) +
     (warehouseFilter !== "ALL" ? 1 : 0) +
     (onlyLowStock ? 1 : 0)
 
@@ -596,6 +577,7 @@ export default function StokPage() {
     setSearch("")
     setKindFilter(null)
     setCategoryFilter("ALL")
+    setBrandFilter("ALL")
     setWarehouseFilter("ALL")
     setOnlyLowStock(false)
   }
@@ -626,6 +608,7 @@ export default function StokPage() {
             search: debouncedSearch,
             kind: kindFilter,
             category: categoryFilter === "ALL" ? null : categoryFilter,
+            brand: brandFilter === "ALL" ? null : brandFilter,
             warehouseId: warehouseFilter === "ALL" ? null : warehouseFilter,
             lowStock: onlyLowStock ? "1" : null,
           }}
@@ -643,6 +626,12 @@ export default function StokPage() {
           <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
             <Tags className="mr-2 h-4 w-4" />
             Kategoriler
+          </Button>
+        </WriteAction>
+        <WriteAction>
+          <Button variant="outline" onClick={() => setIsBrandDialogOpen(true)}>
+            <BadgeCheck className="mr-2 h-4 w-4" />
+            Markalar
           </Button>
         </WriteAction>
         <Dialog
@@ -708,73 +697,29 @@ export default function StokPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="category">Kategori</Label>
-                  {addingFormCategory ? (
-                    <div className="flex gap-2">
-                      <Input
-                        autoFocus
-                        value={formNewCategory}
-                        onChange={(e) => setFormNewCategory(e.target.value)}
-                        placeholder="Yeni kategori adı"
-                        disabled={isLoading || categorySaving}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault()
-                            void handleAddFormCategory()
-                          }
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        onClick={() => void handleAddFormCategory()}
-                        disabled={categorySaving || !formNewCategory.trim()}
-                        className="shrink-0"
-                      >
-                        Ekle
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setAddingFormCategory(false)
-                          setFormNewCategory("")
-                        }}
-                        disabled={categorySaving}
-                        className="shrink-0"
-                      >
-                        İptal
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <select
-                        id="category"
-                        value={formData.category}
-                        onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                        disabled={isLoading}
-                        className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">— Kategori yok —</option>
-                        {categoryOptions.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setFormNewCategory("")
-                          setAddingFormCategory(true)
-                        }}
-                        disabled={isLoading}
-                        className="shrink-0"
-                        title="Yeni kategori ekle"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                  <ProductGroupSelect
+                    id="category"
+                    kind="category"
+                    companyId={companyId}
+                    value={formData.category}
+                    options={categoryOptions}
+                    onChange={(v) => setFormData((prev) => ({ ...prev, category: v }))}
+                    onCreated={() => void fetchCategories()}
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="brand">Marka</Label>
+                  <ProductGroupSelect
+                    id="brand"
+                    kind="brand"
+                    companyId={companyId}
+                    value={formData.brand}
+                    options={brandOptions}
+                    onChange={(v) => setFormData((prev) => ({ ...prev, brand: v }))}
+                    onCreated={() => void fetchBrands()}
+                    disabled={isLoading}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="shelfCode">Raf No</Label>
@@ -1050,6 +995,17 @@ export default function StokPage() {
             void fetchProducts()
           }}
         />
+        {/* Marka Yönetimi — aynı pencere, aynı kural (ürünün brand alanı) */}
+        <CategoryManagerDialog
+          kind="brand"
+          open={isBrandDialogOpen}
+          onOpenChange={setIsBrandDialogOpen}
+          companyId={companyId}
+          onChanged={() => {
+            void fetchBrands()
+            void fetchProducts()
+          }}
+        />
         </div>
       </div>
 
@@ -1096,6 +1052,22 @@ export default function StokPage() {
                   <SelectContent>
                     <SelectItem value="ALL">Tüm kategoriler</SelectItem>
                     {categoryOptions.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              {brandOptions.length > 0 && (
+                <Select value={brandFilter} onValueChange={setBrandFilter}>
+                  <SelectTrigger className="h-9 w-auto min-w-[140px] gap-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Tüm markalar</SelectItem>
+                    {brandOptions.map((c) => (
                       <SelectItem key={c} value={c}>
                         {c}
                       </SelectItem>
@@ -1171,6 +1143,7 @@ export default function StokPage() {
                 <StyledTableHead>Kod</StyledTableHead>
                 <StyledTableHead>Ad</StyledTableHead>
                 <StyledTableHead>Kategori</StyledTableHead>
+                <StyledTableHead>Marka</StyledTableHead>
                 <StyledTableHead>Barkod</StyledTableHead>
                 <StyledTableHead>Raf No</StyledTableHead>
                 <StyledTableHead>Birim</StyledTableHead>
@@ -1186,7 +1159,7 @@ export default function StokPage() {
             <TableBody>
               {visibleProducts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={showWhCol ? 13 : 12} className="py-10 text-center">
+                  <TableCell colSpan={showWhCol ? 14 : 13} className="py-10 text-center">
                     {activeFilterCount > 0 ? (
                       <div className="flex flex-col items-center gap-3">
                         <p className="text-sm text-muted-foreground">Süzgeçlere uyan kayıt yok.</p>
@@ -1230,6 +1203,13 @@ export default function StokPage() {
                         <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-xs">
                           {product.category}
                         </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {product.brand ? (
+                        <span className="text-sm">{product.brand}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}

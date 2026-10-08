@@ -11,6 +11,10 @@
  *
  * Bileşen kendi verisini çeker; çağıran yalnızca `onChanged` ile kendi ürün
  * listesini tazeler.
+ *
+ * MARKA aynı modeli paylaşır (`kind="brand"`: tanım PRODUCT_BRAND + ürünün
+ * `brand` metni), bu yüzden ayrı bir kopya değil aynı bileşendir — silme/
+ * birleştirme kuralı iki eksende ayrışmasın.
  */
 
 import { useCallback, useEffect, useState } from "react"
@@ -28,6 +32,7 @@ import { Input } from "@/components/ui/input"
 import { TextCombobox } from "@/components/ui/text-combobox"
 import { useToast } from "@/components/ui/use-toast"
 import { useConfirm } from "@/components/ui/confirm-dialog-provider"
+import { PRODUCT_GROUP_TEXT, type ProductGroupKind } from "@/lib/stock/product-group"
 
 type CategoryRow = {
   label: string
@@ -41,13 +46,17 @@ export function CategoryManagerDialog({
   onOpenChange,
   companyId,
   onChanged,
+  kind = "category",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   companyId: string
   /** Kategori eklendi/silindi/taşındı — çağıran ürün listesini tazelesin. */
   onChanged?: () => void
+  /** Hangi eksen yönetiliyor; varsayılan kategori (mevcut çağıranlar). */
+  kind?: ProductGroupKind
 }) {
+  const t = PRODUCT_GROUP_TEXT[kind]
   const { toast } = useToast()
   const { confirm } = useConfirm()
 
@@ -70,10 +79,12 @@ export function CategoryManagerDialog({
     if (!companyId) return
     try {
       const [defRes, countRes] = await Promise.all([
-        fetch(`/api/company/definitions?companyId=${companyId}&type=PRODUCT_CATEGORY`, {
+        fetch(`/api/company/definitions?companyId=${companyId}&type=${t.definitionType}`, {
           cache: "no-store",
         }),
-        fetch(`/api/stok/products/category?companyId=${companyId}`, { cache: "no-store" }),
+        fetch(`/api/stok/products/category?companyId=${companyId}&field=${kind}`, {
+          cache: "no-store",
+        }),
       ])
       const defs: Array<{ id: string; label: string }> = defRes.ok ? await defRes.json() : []
       const counts: Array<{ category: string; count: number }> = countRes.ok
@@ -93,7 +104,7 @@ export function CategoryManagerDialog({
     } catch {
       /* sessizce geç — pencere boş açılır */
     }
-  }, [companyId])
+  }, [companyId, kind, t.definitionType])
 
   useEffect(() => {
     if (open) void load()
@@ -112,16 +123,16 @@ export function CategoryManagerDialog({
       const res = await fetch(`/api/company/definitions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId, type: "PRODUCT_CATEGORY", label }),
+        body: JSON.stringify({ companyId, type: t.definitionType, label }),
       })
       const data = await res.json().catch(() => ({}) as any)
-      if (!res.ok) throw new Error(data?.error || "Kategori eklenemedi")
+      if (!res.ok) throw new Error(data?.error || `${t.Noun} eklenemedi`)
       setNewLabel("")
       await finish()
     } catch (e) {
       toast({
         title: "Hata",
-        description: e instanceof Error ? e.message : "Kategori eklenemedi",
+        description: e instanceof Error ? e.message : `${t.Noun} eklenemedi`,
         variant: "destructive",
       })
     } finally {
@@ -143,10 +154,10 @@ export function CategoryManagerDialog({
     }
     const merging = rows.some((r) => r.label === to)
     const ok = await confirm({
-      title: merging ? "Kategorileri birleştir" : "Kategoriyi yeniden adlandır",
+      title: merging ? `${t.pluralAcc} birleştir` : `${t.Acc} yeniden adlandır`,
       description: merging
-        ? `"${from}" kategorisindeki ${editing.count} ürün "${to}" kategorisine taşınacak ve "${from}" kalkacak. Ürünler silinmez.`
-        : `"${from}" kategorisi "${to}" olarak değiştirilecek. ${editing.count} ürün etkilenecek.`,
+        ? `"${from}" ${t.loc} ${editing.count} ürün "${to}" ${t.dat} taşınacak ve "${from}" kalkacak. Ürünler silinmez.`
+        : `"${from}" ${t.poss} "${to}" olarak değiştirilecek. ${editing.count} ürün etkilenecek.`,
       confirmLabel: merging ? "Birleştir" : "Değiştir",
     })
     if (!ok) return
@@ -156,7 +167,7 @@ export function CategoryManagerDialog({
         const res = await fetch(`/api/stok/products/category`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, from, to }),
+          body: JSON.stringify({ companyId, field: kind, from, to }),
         })
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
@@ -173,13 +184,13 @@ export function CategoryManagerDialog({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ label: to }),
             })
-        if (!res.ok) throw new Error("Kategori listesi güncellenemedi")
+        if (!res.ok) throw new Error(`${t.Noun} listesi güncellenemedi`)
       }
       setEditing(null)
       setEditTarget("")
       await finish()
       toast({
-        title: merging ? "Kategoriler birleştirildi" : "Kategori yeniden adlandırıldı",
+        title: merging ? `${t.title} birleştirildi` : `${t.Noun} yeniden adlandırıldı`,
         description: `${from} → ${to}${editing.count > 0 ? ` (${editing.count} ürün)` : ""}`,
       })
     } catch (e) {
@@ -200,11 +211,11 @@ export function CategoryManagerDialog({
    */
   const deleteCategory = async (row: CategoryRow) => {
     const ok = await confirm({
-      title: "Kategoriyi sil",
+      title: `${t.Acc} sil`,
       description:
         row.count > 0
-          ? `"${row.label}" kategorisi ${row.count} üründe kullanılıyor. Silinirse bu ürünlerin kategorisi boşaltılacak ve satış ekranındaki "${row.label}" sekmesi kaybolacak. Ürünler silinmez.`
-          : `"${row.label}" kategorisini silmek istediğinize emin misiniz?`,
+          ? `"${row.label}" ${t.poss} ${row.count} üründe kullanılıyor. Silinirse bu ürünlerin ${t.poss} boşaltılacak${t.deleteNote(row.label)}. Ürünler silinmez.`
+          : `"${row.label}" ${t.possAcc} silmek istediğinize emin misiniz?`,
       confirmLabel: "Sil",
       variant: "destructive",
     })
@@ -215,27 +226,27 @@ export function CategoryManagerDialog({
         const res = await fetch(`/api/stok/products/category`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ companyId, from: row.label, to: null }),
+          body: JSON.stringify({ companyId, field: kind, from: row.label, to: null }),
         })
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
-          throw new Error(data?.error || "Ürünlerin kategorisi boşaltılamadı")
+          throw new Error(data?.error || `Ürünlerin ${t.poss} boşaltılamadı`)
         }
       }
       if (row.id) {
         const res = await fetch(`/api/company/definitions/${row.id}`, { method: "DELETE" })
-        if (!res.ok) throw new Error("Kategori listeden silinemedi")
+        if (!res.ok) throw new Error(`${t.Noun} listeden silinemedi`)
       }
       await finish()
       toast({
-        title: "Kategori silindi",
+        title: `${t.Noun} silindi`,
         description:
-          row.count > 0 ? `${row.label} — ${row.count} ürün kategorisiz kaldı` : row.label,
+          row.count > 0 ? `${row.label} — ${row.count} ürün ${t.without} kaldı` : row.label,
       })
     } catch (e) {
       toast({
         title: "Hata",
-        description: e instanceof Error ? e.message : "Kategori silinemedi",
+        description: e instanceof Error ? e.message : `${t.Noun} silinemedi`,
         variant: "destructive",
       })
     } finally {
@@ -247,18 +258,15 @@ export function CategoryManagerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Kategoriler</DialogTitle>
-          <DialogDescription>
-            Ürün eklerken bu listeden seçilir. Silmek, kategoriyi kullanan ürünlerin
-            kategorisini de boşaltır — satış ekranındaki sekme böyle kalkar.
-          </DialogDescription>
+          <DialogTitle>{t.title}</DialogTitle>
+          <DialogDescription>{t.description}</DialogDescription>
         </DialogHeader>
 
         <div className="flex gap-2">
           <Input
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="Yeni kategori adı"
+            placeholder={`Yeni ${t.noun} adı`}
             disabled={saving}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -286,15 +294,15 @@ export function CategoryManagerDialog({
             <p className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{editing.label}</span>
               {editing.count > 0 ? ` (${editing.count} ürün)` : ""} → yeni ad yazın ya da
-              birleştirmek için mevcut bir kategori seçin
+              birleştirmek için mevcut bir {t.noun} seçin
             </p>
             <div className="flex items-center gap-2">
               <TextCombobox
                 value={editTarget}
                 onChange={setEditTarget}
                 options={rows.filter((r) => r.label !== editing.label).map((r) => r.label)}
-                placeholder="Kategori adı"
-                emptyText="Başka kategori yok — yazdığınız yeni ad olur"
+                placeholder={`${t.Noun} adı`}
+                emptyText={`Başka ${t.noun} yok — yazdığınız yeni ad olur`}
               />
               <Button
                 type="button"
@@ -325,7 +333,7 @@ export function CategoryManagerDialog({
 
         <div className="max-h-72 space-y-1 overflow-y-auto">
           {rows.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">Henüz kategori yok</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">Henüz {t.noun} yok</p>
           ) : (
             rows.map((c) => (
               <div
@@ -369,7 +377,7 @@ export function CategoryManagerDialog({
                     size="icon"
                     disabled={saving}
                     onClick={() => void deleteCategory(c)}
-                    title="Kategoriyi sil"
+                    title={`${t.Acc} sil`}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>

@@ -59,6 +59,7 @@ interface ProductDetail {
   name: string
   barcode?: string
   category?: string | null
+  brand?: string | null
   /** Depodaki fiziksel yer (raf/koridor/göz) — serbest metin. */
   shelfCode?: string | null
   unit: string
@@ -569,6 +570,12 @@ export default function ProductDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Kategori</p>
                   <p className="font-medium">{product.category}</p>
+                </div>
+              )}
+              {product.brand && (
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Marka</p>
+                  <p className="font-medium">{product.brand}</p>
                 </div>
               )}
               <div>

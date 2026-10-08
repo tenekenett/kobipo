@@ -2,7 +2,7 @@
  * Ürün listesi dışa aktarımı.
  *
  * Filtreler `/stok` ekranındakilerle BİREBİR aynı kuralları uygular — tür
- * (`matchesKindFilter`), kategori, depo, düşük stok. Ekranın filtresi burada
+ * (`matchesKindFilter`), kategori, marka, depo, düşük stok. Ekranın filtresi burada
  * yaklaşık olarak taklit edilseydi kullanıcı "listede 42 ürün var ama Excel'de
  * 47 çıktı" derdi ve hangisinin doğru olduğu belli olmazdı.
  */
@@ -18,6 +18,7 @@ export type ProductExportParams = {
   companyId: string
   search?: string | null
   category?: string | null
+  brand?: string | null
   /** "menu" | "ingredient" | "both" | "service" — /stok ekranının tür süzgeci. */
   kind?: string | null
   /** Depo id'si; verilirse yalnızca o depoda stoğu olan ürünler ve o deponun miktarı. */
@@ -46,6 +47,7 @@ function baseColumns(showWarehouse: boolean): ExportColumn[] {
     { key: "barcode", label: "Barkod", width: 26 },
     { key: "shelfCode", label: "Raf No", width: 16 },
     { key: "category", label: "Kategori", width: 26 },
+    { key: "brand", label: "Marka", width: 22 },
     { key: "unit", label: "Birim", width: 14, align: "center" },
     { key: "stockQuantity", label: showWarehouse ? "Depo Stoğu" : "Stok", type: "qty", width: 20 },
     { key: "minStockLevel", label: "Min. Stok", type: "qty", width: 18 },
@@ -74,7 +76,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
     // (app/api/stok/products/route.ts ile AYNI sütunlar, aynı ön süzgeç).
     const ids = await trContainsIds({
       table: "products",
-      columns: ["name", "code", "barcode", '"shelfCode"'],
+      columns: ["name", "code", "barcode", '"shelfCode"', "brand"],
       companyId: params.companyId,
       term: params.search,
     })
@@ -87,6 +89,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
     where.isIngredient = params.isIngredient === "true"
   }
   if (params.category) where.category = params.category
+  if (params.brand) where.brand = params.brand
 
   const warehouseId = params.warehouseId && params.warehouseId !== "ALL" ? params.warehouseId : null
 
@@ -144,6 +147,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
       barcode: product.barcode,
       shelfCode: product.shelfCode,
       category: product.category,
+      brand: product.brand,
       unit: product.unit,
       stockQuantity: product.isService ? null : quantity,
       minStockLevel: product.minStockLevel,
@@ -164,6 +168,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
     filters: describeFilters([
       ["Arama", params.search],
       ["Kategori", params.category],
+      ["Marka", params.brand],
       ["Tür", kindFilter ? KIND_LABELS[kindFilter] : null],
       ["Depo", warehouse?.name],
       ["Stok", lowStockOnly ? "Yalnızca düşük stok" : null],

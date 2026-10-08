@@ -26,6 +26,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
     const isSellable = searchParams.get("isSellable")
     const isIngredient = searchParams.get("isIngredient")
     const category = searchParams.get("category")
+    const brand = searchParams.get("brand")
 
     if (!companyId) {
       return NextResponse.json(
@@ -46,10 +47,12 @@ export const GET = withApiErrors(async function GET(request: Request) {
       // id listesi çıkarılır (bkz. lib/db/tr-search.ts).
       //
       // Depoda "A-04 rafında ne var" diye aranır; raf no arama dışında kalırsa
-      // alan yalnız kartta durur, işe yaramaz.
+      // alan yalnız kartta durur, işe yaramaz. Marka da öyle: "bosch" yazan
+      // kullanıcı Bosch ürünlerini bekler, ürün adında marka geçmese bile.
+      // Sütun listesi dışa aktarımla AYNI (lib/export/datasets/products.ts).
       const ids = await trContainsIds({
         table: "products",
-        columns: ["name", "code", "barcode", '"shelfCode"'],
+        columns: ["name", "code", "barcode", '"shelfCode"', "brand"],
         companyId,
         term: search,
       })
@@ -73,6 +76,10 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
     if (category) {
       where.category = category
+    }
+
+    if (brand) {
+      where.brand = brand
     }
 
     const products = await prisma.product.findMany({
@@ -123,6 +130,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       name,
       barcode,
       category,
+      brand,
       shelfCode,
       unit,
       vatRate,
@@ -210,6 +218,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
         name,
         barcode,
         category: category && String(category).trim() ? String(category).trim() : null,
+        brand: brand && String(brand).trim() ? String(brand).trim() : null,
         shelfCode: shelfCode && String(shelfCode).trim() ? String(shelfCode).trim() : null,
         imageUrl: image.changed && "url" in image ? image.url : null,
         unit: unit || "ADET",

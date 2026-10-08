@@ -148,6 +148,7 @@ export default function VeriAktarimPage() {
           Barkod: "8690000000001",
           "Raf No": "A-04",
           Kategori: "İçecek",
+          Marka: "Örnek Marka",
           Birim: "ADET",
           "Stok Miktarı": 10,
           "Min. Stok": 3,
