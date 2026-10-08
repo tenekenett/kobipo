@@ -41,6 +41,12 @@ import { Plus, Search, Eye, Pencil, Trash2, AlertTriangle, ChefHat, Sticker, Tag
 import { CategoryManagerDialog } from "@/components/stok/category-manager-dialog"
 import { ProductGroupSelect } from "@/components/stok/product-group-select"
 import {
+  PRODUCT_GROUP_NONE,
+  groupChips,
+  matchesGroupFilter,
+  visibleGroupChips,
+} from "@/lib/stock/product-group"
+import {
   StockMovementDialog,
   type StockMovementMode,
 } from "@/components/stok/stock-movement-dialog"
@@ -152,6 +158,24 @@ function FilterChip({
   )
 }
 
+/**
+ * Rozet satırı. Birden çok satır varken (Tür + Marka) solda eksen adı durur;
+ * tek satırda etiket basılmaz — ekran eskisi gibi görünür.
+ */
+function FilterRow({ label, children }: { label?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      {label && (
+        <span className="w-12 shrink-0 pt-2 text-xs font-medium text-muted-foreground">{label}</span>
+      )}
+      <div className="flex min-w-0 flex-1 flex-wrap gap-1.5">{children}</div>
+    </div>
+  )
+}
+
+/** Kapalı marka satırında gösterilen rozet sayısı; fazlası "+N marka" ile açılır. */
+const BRAND_CHIP_LIMIT = 8
+
 const emptyProductForm = {
   code: "",
   name: "",
@@ -215,7 +239,9 @@ export default function StokPage() {
   const [kindFilter, setKindFilter] = useState<ProductKind | null>(null)
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("ALL")
+  /** "ALL" | marka adı | PRODUCT_GROUP_NONE (Markasız). */
   const [brandFilter, setBrandFilter] = useState("ALL")
+  const [showAllBrands, setShowAllBrands] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -530,19 +556,32 @@ export default function StokPage() {
 
   const lowStockCount = products.filter(isLowStock).length
 
-  // Tür DIŞINDAKİ süzgeçler önce uygulanır; tür rozetlerinin yanındaki sayılar
-  // bu küme üzerinden hesaplanır ("bu türe basarsam kaç kayıt kalır").
-  let baseProducts = products
+  // Rozetli iki eksen (tür, marka) DIŞINDAKİ süzgeçler önce uygulanır. Her rozet
+  // satırının sayısı ÖTEKİ eksen uygulanmış küme üzerinden hesaplanır ("buna
+  // basarsam kaç kayıt kalır") — kendi ekseni uygulanmış olsaydı seçili olmayan
+  // her rozet 0 gösterirdi.
+  let filteredProducts = products
   if (warehouseFilter !== "ALL") {
-    baseProducts = baseProducts.filter((p) => inSelectedWh.has(p.id))
+    filteredProducts = filteredProducts.filter((p) => inSelectedWh.has(p.id))
   }
   if (categoryFilter !== "ALL") {
-    baseProducts = baseProducts.filter((p) => (p.category || "") === categoryFilter)
+    filteredProducts = filteredProducts.filter((p) => (p.category || "") === categoryFilter)
   }
-  if (brandFilter !== "ALL") {
-    baseProducts = baseProducts.filter((p) => (p.brand || "") === brandFilter)
-  }
-  if (onlyLowStock) baseProducts = baseProducts.filter(isLowStock)
+  if (onlyLowStock) filteredProducts = filteredProducts.filter(isLowStock)
+
+  const baseProducts = filteredProducts.filter((p) => matchesGroupFilter(p.brand, brandFilter))
+
+  const brandScope = kindFilter
+    ? filteredProducts.filter((p) => matchesKindFilter(p, kindFilter))
+    : filteredProducts
+  const { chips: brandChips, noneCount: noBrandCount } = groupChips(
+    products.map((p) => p.brand),
+    brandScope.map((p) => p.brand)
+  )
+  const shownBrandChips = showAllBrands
+    ? brandChips
+    : visibleGroupChips(brandChips, brandFilter, BRAND_CHIP_LIMIT)
+  const hiddenBrandCount = brandChips.length - shownBrandChips.length
 
   const kindCounts = new Map<ProductKind, number>(
     kindOptions.map((o) => [o.value, baseProducts.filter((p) => matchesKindFilter(p, o.value)).length])
@@ -578,6 +617,7 @@ export default function StokPage() {
     setKindFilter(null)
     setCategoryFilter("ALL")
     setBrandFilter("ALL")
+    setShowAllBrands(false)
     setWarehouseFilter("ALL")
     setOnlyLowStock(false)
   }
@@ -683,7 +723,9 @@ export default function StokPage() {
                     disabled={isLoading}
                   />
                 </div>
-                <div className="space-y-2">
+                {/* Ad tam genişlik: Kategori | Marka yan yana düşsün ve aşağıdaki
+                    Alış | Satış eşleşmesi kaymasın. */}
+                <div className="space-y-2 md:col-span-2">
                   <Label htmlFor="name">Ad *</Label>
                   <Input
                     id="name"
@@ -1060,22 +1102,6 @@ export default function StokPage() {
                 </Select>
               )}
 
-              {brandOptions.length > 0 && (
-                <Select value={brandFilter} onValueChange={setBrandFilter}>
-                  <SelectTrigger className="h-9 w-auto min-w-[140px] gap-2">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">Tüm markalar</SelectItem>
-                    {brandOptions.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-
               {showWhCol && (
                 <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
                   <SelectTrigger className="h-9 w-auto min-w-[140px] gap-2">
@@ -1115,23 +1141,71 @@ export default function StokPage() {
               )}
             </div>
 
-            {/* TEK tür filtresi — seçenek isimleri ürün formundakilerle aynı,
-                böylece "kaydederken ne dediysem burada onu arıyorum". */}
-            <div className="flex flex-wrap gap-1.5">
-              <FilterChip active={kindFilter === null} count={baseProducts.length} onClick={() => setKindFilter(null)}>
-                Tümü
-              </FilterChip>
-              {kindOptions.map((o) => (
-                <FilterChip
-                  key={o.value}
-                  active={kindFilter === o.value}
-                  count={kindCounts.get(o.value) ?? 0}
-                  title={o.hint}
-                  onClick={() => setKindFilter(kindFilter === o.value ? null : o.value)}
-                >
-                  {o.label}
+            <div className="space-y-2">
+              {/* TEK tür filtresi — seçenek isimleri ürün formundakilerle aynı,
+                  böylece "kaydederken ne dediysem burada onu arıyorum". */}
+              <FilterRow label={brandChips.length > 0 ? "Tür" : undefined}>
+                <FilterChip active={kindFilter === null} count={baseProducts.length} onClick={() => setKindFilter(null)}>
+                  Tümü
                 </FilterChip>
-              ))}
+                {kindOptions.map((o) => (
+                  <FilterChip
+                    key={o.value}
+                    active={kindFilter === o.value}
+                    count={kindCounts.get(o.value) ?? 0}
+                    title={o.hint}
+                    onClick={() => setKindFilter(kindFilter === o.value ? null : o.value)}
+                  >
+                    {o.label}
+                  </FilterChip>
+                ))}
+              </FilterRow>
+
+              {/* Marka rozetleri — tür satırıyla aynı dil. Yalnız ürünlerde GEÇEN
+                  markalar rozet olur; sıra kullanım sıklığıdır (lib/stock/product-group). */}
+              {brandChips.length > 0 && (
+                <FilterRow label="Marka">
+                  <FilterChip
+                    active={brandFilter === "ALL"}
+                    count={brandScope.length}
+                    onClick={() => setBrandFilter("ALL")}
+                  >
+                    Tümü
+                  </FilterChip>
+                  {shownBrandChips.map((c) => (
+                    <FilterChip
+                      key={c.value}
+                      active={brandFilter === c.value}
+                      count={c.count}
+                      title={c.value}
+                      onClick={() => setBrandFilter(brandFilter === c.value ? "ALL" : c.value)}
+                    >
+                      <span className="max-w-[10rem] truncate">{c.value}</span>
+                    </FilterChip>
+                  ))}
+                  {noBrandCount > 0 && (
+                    <FilterChip
+                      active={brandFilter === PRODUCT_GROUP_NONE}
+                      count={noBrandCount}
+                      title="Markası girilmemiş ürünler"
+                      onClick={() =>
+                        setBrandFilter(brandFilter === PRODUCT_GROUP_NONE ? "ALL" : PRODUCT_GROUP_NONE)
+                      }
+                    >
+                      <span className="italic">Markasız</span>
+                    </FilterChip>
+                  )}
+                  {(hiddenBrandCount > 0 || showAllBrands) && brandChips.length > BRAND_CHIP_LIMIT && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllBrands((v) => !v)}
+                      className="inline-flex items-center rounded-full border border-dashed border-border px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:border-kobipo-blue/50 hover:text-foreground"
+                    >
+                      {showAllBrands ? "Daha az" : `+${hiddenBrandCount} marka`}
+                    </button>
+                  )}
+                </FilterRow>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -1209,7 +1283,9 @@ export default function StokPage() {
                     </TableCell>
                     <TableCell>
                       {product.brand ? (
-                        <span className="text-sm">{product.brand}</span>
+                        <span className="inline-block max-w-[10rem] truncate rounded-full border px-2 py-0.5 text-xs font-medium">
+                          {product.brand}
+                        </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}

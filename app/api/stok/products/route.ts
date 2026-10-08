@@ -8,6 +8,7 @@ import { resolveAllUnitCosts } from "@/lib/stock/cost"
 import { readImageUrlField } from "@/lib/stock/product-image"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
 import { trContainsIds } from "@/lib/db/tr-search"
+import { groupWhereValue } from "@/lib/stock/product-group"
 
 export const dynamic = 'force-dynamic'
 
@@ -78,8 +79,9 @@ export const GET = withApiErrors(async function GET(request: Request) {
       where.category = category
     }
 
+    // `PRODUCT_GROUP_NONE` → markası girilmemiş ürünler (dışa aktarımla aynı kural).
     if (brand) {
-      where.brand = brand
+      where.brand = groupWhereValue(brand)
     }
 
     const products = await prisma.product.findMany({

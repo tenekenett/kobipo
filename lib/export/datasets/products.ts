@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db/prisma"
 import { trContainsIds } from "@/lib/db/tr-search"
 import { resolveAllUnitCosts } from "@/lib/stock/cost"
 import { matchesKindFilter, productKindOf, type ProductKind } from "@/lib/stock/product-kind"
+import { PRODUCT_GROUP_NONE, groupWhereValue } from "@/lib/stock/product-group"
 import type { ExportColumn, ExportDataset } from "../types"
 import { loadExportCompany, describeFilters } from "./context"
 
@@ -18,6 +19,7 @@ export type ProductExportParams = {
   companyId: string
   search?: string | null
   category?: string | null
+  /** Marka adı ya da `PRODUCT_GROUP_NONE` ("Markasız" rozeti). */
   brand?: string | null
   /** "menu" | "ingredient" | "both" | "service" — /stok ekranının tür süzgeci. */
   kind?: string | null
@@ -89,7 +91,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
     where.isIngredient = params.isIngredient === "true"
   }
   if (params.category) where.category = params.category
-  if (params.brand) where.brand = params.brand
+  if (params.brand) where.brand = groupWhereValue(params.brand)
 
   const warehouseId = params.warehouseId && params.warehouseId !== "ALL" ? params.warehouseId : null
 
@@ -168,7 +170,7 @@ export async function buildProductsDataset(params: ProductExportParams): Promise
     filters: describeFilters([
       ["Arama", params.search],
       ["Kategori", params.category],
-      ["Marka", params.brand],
+      ["Marka", params.brand === PRODUCT_GROUP_NONE ? "Markasız" : params.brand],
       ["Tür", kindFilter ? KIND_LABELS[kindFilter] : null],
       ["Depo", warehouse?.name],
       ["Stok", lowStockOnly ? "Yalnızca düşük stok" : null],

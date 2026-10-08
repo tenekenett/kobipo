@@ -313,7 +313,9 @@ export function ProductEditDialog({
                 disabled={isLoading}
               />
             </div>
-            <div className="space-y-2">
+            {/* Ad tam genişlik: Kategori | Marka yan yana düşsün ve aşağıdaki
+                Alış | Satış eşleşmesi kaymasın. */}
+            <div className="space-y-2 md:col-span-2">
               <Label htmlFor="edit-name">Ad *</Label>
               <Input
                 id="edit-name"

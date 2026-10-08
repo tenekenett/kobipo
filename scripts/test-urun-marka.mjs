@@ -175,6 +175,21 @@ async function main() {
     check("CSV'de Marka sütunu ve değeri", r.text.includes("Marka") && r.text.includes(BRAND_B))
     check("CSV marka süzgecine uyar", r.text.includes(`TEST Ürün A ${ts}`) && !r.text.includes(`TEST Ürün B ${ts}`))
 
+    // "Markasız" rozeti — ekran, liste ucu ve dışa aktarım aynı sabiti tanır.
+    const NONE = "__none__"
+    r = await api("GET", `/api/stok/products?companyId=${R}&brand=${NONE}&search=${encodeURIComponent(ts)}`)
+    check(
+      "liste ucu: Markasız yalnız markası boş ürünü döndürür",
+      Array.isArray(r.body) && r.body.length === 1 && r.body[0].id === p2,
+      `${r.body?.length} kayıt`
+    )
+    r = await api("GET", `/api/export/products?companyId=${R}&format=csv&brand=${NONE}&search=${encodeURIComponent(ts)}`)
+    check(
+      "CSV: Markasız süzgeci",
+      r.status === 200 && r.text.includes(`TEST Ürün B ${ts}`) && !r.text.includes(`TEST Ürün A ${ts}`),
+      `${r.status}`
+    )
+
     console.log("\n7) Marka silme ürünün markasını boşaltır")
     r = await api("PATCH", "/api/stok/products/category", { companyId: R, field: "brand", from: BRAND_B, to: null })
     check("toplu boşaltma", r.status === 200 && r.body?.updated === 1, `${r.status} ${JSON.stringify(r.body)}`)
