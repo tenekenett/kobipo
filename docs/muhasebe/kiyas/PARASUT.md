@@ -1,7 +1,7 @@
 # Paraşüt ↔ Kobipo muhasebe kıyası (2026-10-09)
 
 Kullanıcı planındaki adım: "A + B + D → **başka bir firmanın projesiyle kıyas** → müşavire çıkış (C)".
-Önceki kıyas Aposkal'dı (2026-09-30, `docs/finansal-raporlar/MUHASEBE-DEVAM.md`); bu Paraşüt.
+Önceki kıyas Aposkal'dı (2026-09-30, `docs/finansal-raporlar/MUHASEBE-DEVAM.md`); dizin `README.md`.
 
 **Yöntem.** Kullanıcının Paraşüt deneme hesabı (firma "Materyon bilişim", 854189), Chrome'da.
 Test verisi (kullanıcı izniyle, hesapta DURUYOR — hepsi `TEST Kıyas` önekli):
@@ -17,6 +17,11 @@ YOK. Müşavir "Mali Müşavir Ekle" ile (ad + e-posta) kullanıcı olarak davet
 kendi programına dış araçlarla çeker (kılavuzda "Atlas Aktarım"). Yani Kobipo'nun muhasebe
 modülünün Paraşüt'te karşılığı yok — kıyasın değeri **sahibin gördüğü yüzde** ve **müşavire
 devir biçiminde**.
+
+**Müşavir tarafı (sonradan açık kaynaktan, `AKTARIM-VE-YZ.md`):** Paraşüt Mikro grubundadır.
+Müşaviri **Atlas Aktarım** (bedava; Paraşüt/Bizmu faturaları + banka hareketleri, hesap kodunu
+otomatik doldurur, Luca'ya tek tuş) ve **ExpressAktarım** (Zirve Nova/Müşavir, Mikro Müşavir)
+taşır. Uygulamada görmediğimiz "muhasebe" Paraşüt'ün dışında, bu köprülerde duruyor.
 
 Ölçülen üç doğruluk sorunu (Kobipo'da üçü de doğru çözülmüş):
 

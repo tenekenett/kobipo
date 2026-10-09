@@ -58,12 +58,24 @@ kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e dü�
 
 ### ▶ DEVAM — 2026-10-09 gece kıyas turu (EN GÜNCEL)
 
-Kullanıcı planındaki "başka bir firmanın projesiyle kıyas" adımı başladı. **İlk site Paraşüt** —
-notlar `docs/muhasebe/PARASUT-KIYAS.md`. Sonuç: Paraşüt ön muhasebedir, muhasebe (defter/mizan/
-bilanço) tarafı YOK; müşavir davetli kullanıcıdır ve aktarımı dış araçla yapar. Kullanıcının
-araştırma amacı muhasebe modülüydü, Paraşüt'te karşılığı olmadığı için **başka bir siteye
-geçildi**. Paraşüt'ten çıkan Kobipo önerileri (nakit projeksiyonuna vergi/maaş, kur farkını
-söyleme, fatura satırında kâr…) notta sıralı; henüz yapılmadı, kullanıcı seçmedi.
+Kullanıcı planındaki "başka bir firmanın projesiyle kıyas" adımı yapıldı — **bütün raporlar
+`docs/muhasebe/kiyas/`** (dizin `README.md`): Paraşüt (deneme hesabında ölçüldü), Faturaport
+(kullanıcı hesabı), Luca (açık kaynak — hesap açılamadı), diğer müşavir programları (Zirve, Mikro,
+Logo, Uyumsoft, ETA, DİA, Orka), aktarım köprüleri ve YZ ürünleri (Atlas, ExpressAktarım, Rahat
+Aktarım, Mihsap, Monorobi), mevzuat (e-Defter, yeni e-Beyan, DBS).
+
+Özü: Türkiye'de defteri müşavir tutar; KOBİ ürünleri ön muhasebedir ve muhasebeyi müşavirin
+programına köprüyle bırakır (Faturaport → Luca/Zirve biçimli KDV raporu; Paraşüt → Atlas Aktarım).
+Müşavir tarafında öğrenen otomatik fiş sıradan (Monorobi, Mihsap, Atlas). Kobipo'nun farkı fişi
+belgenin sahibinin yanında, e-belge DIŞI veriyle (kasa/banka türü, çek, bordro, matbu, döviz)
+üretmesi. Aktarımın ortak dili: Luca fiş Excel'i (Fiş No/Tarih/Hesap Kodu/Borç/Alacak, 50 fiş/dosya)
+ve KDV oranına bölünmüş fatura listesi.
+
+**▶ SIRADAKİ (kullanıcı):** "Kobipo'nun şu anki hali ile kıyaslayıp güncelleriz" — sorular
+`kiyas/README.md` sonunda (konum kararı: müşavirin yerine mi, köprü mü; Luca dışa aktarımı; çok
+mükellefli müşavir ekranı; Paraşüt'ten çıkan sahip önerileri; e-Beyan'a hazır KDV dökümü).
+Müşavirden istenecek: Luca fiş aktarım şablonu + hesap planı. Hiçbir öneri henüz yapılmadı.
+Paraşüt deneme hesabında `TEST Kıyas` önekli test verisi duruyor (kullanıcı izniyle).
 
 Durum doğrulaması (bu turun başı): `tsc` temiz, `npx vitest run lib` 2031 test; canlıda 7186c11
 yayında (`/api/muhasebe/cron/mutabakat` 401). **`20261009000002` (eski `accounting_entries`)
