@@ -98,17 +98,14 @@ sayfa yanıt veriyordu — tıklama sayfa içinden yapılınca çalıştı.)
 **Doğrulama:** `tsc` temiz, `npx vitest run lib` 2031 test; uçtan uca 133/133 (yeni: 0'da kapalı modülde
 dışa aktarım 403, 7e dışa aktarım — CSV toplamları ekranla kuruşu kuruşuna, kebirde hesapsız 400,
 Excel/PDF iner; 10'da kapanış uyarısı). Masaüstünde mizan "Dışa Aktar" düğmesi görüldü.
-Canlı `cari/bakiye-tutarlilik` bu turun değişikliklerinden sonra geçti. **Canlı `muhasebe/defter-tutarlilik`
-bu turun sonunda SONUÇLANMADI:** iki koşu 10 dk süre sınırına takıldı (doğrulama hatası değil —
-veritabanı turu ~750 ms'ye çıkmıştı, test defter başına ~20 ardışık sorgu atıyor; bu turun kodu o
-testin yoluna dokunmuyor: stok değeri/ödeme/dışa aktarım onun kaynaklarında yok). Sınır 20 dk'ya
-çıkarıldı (`defter-tutarlilik.canli.test.ts`); üçüncü koşu sürerken oturum kapandı.
+Canlı `cari/bakiye-tutarlilik` ve `muhasebe/defter-tutarlilik` bu turun değişikliklerinden sonra **geçti**
+(defter testi 7,4 dk; iki önceki koşu 10 dk sınırına takılmıştı — doğrulama hatası değil, veritabanı
+turu ~750 ms'ye çıkmıştı; sınır 20 dk'ya çıkarıldı, `defter-tutarlilik.canli.test.ts`).
 
 **▶ YENİ BİLGİSAYARDA İLK ADIMLAR (bu tur için)**
 1. `git pull` → `npx prisma generate` (şema değişmedi ama önceki turdan AccountingEntry kalkmıştı).
 2. `npx tsc --noEmit` ve `npx vitest run lib` (2031 test bekleniyor).
-3. Canlı, salt okur: `npm run test:canli -- lib/muhasebe/defter-tutarlilik` (en fazla 20 dk; sonucu
-   bu turda alınamadı). İsterseniz uçtan uca: `npm run dev` + `TEST_BASE_URL=http://localhost:3000
+3. İsteğe bağlı (bu turda geçti): canlı `npm run test:canli -- lib/muhasebe/defter-tutarlilik`; uçtan uca: `npm run dev` + `TEST_BASE_URL=http://localhost:3000
    node scripts/test-muhasebe.mjs` (Reypo; 133 kontrol; 12–20 dk).
 4. Gözle (isteğe bağlı): Ay Sonu → satılan malın maliyeti ekranında "Faturasız stok girişi" kutusu ve
    ürün listesi (Reypo Temmuz'da görünür; ekranı görmek için betiği `MUHASEBE_BIRAK=1` ile koşup sonra
