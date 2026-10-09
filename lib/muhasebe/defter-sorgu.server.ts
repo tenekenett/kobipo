@@ -255,3 +255,22 @@ export async function kebir(
   })
   return { hesap: { kod: hesap.code, ad: hesap.name }, devir, satirlar, borc, alacak }
 }
+
+/**
+ * Mali tabloların iki mizanı — ekran ucu (`/api/muhasebe/mali-tablolar`) ve dışa aktarım
+ * (`lib/export/datasets/muhasebe.ts`) AYNI tanımı kullanır, dosya ekrandan ayrışmasın.
+ *
+ * Bilanço `bit` itibarıyla bakiyedir; yıl sonu kapanış ve ertesi yıl açılış fişi birbirini tam
+ * götürür, ikisi birlikte dışlanır (yalnız kapanış dışlansaydı ertesi yıla uzanan dönemde açılış
+ * bakiyeleri iki kez sayılırdı). Gelir tablosu dönem hareketidir; "gelir-kapanis" (6 → 690)
+ * dışlanır, yoksa sıfır basardı.
+ */
+export async function maliTabloMizanlari(defterId: string, d: { bas: Date; bit: Date; taslakDahil: boolean }) {
+  const bilancoDonemi: DonemSecimi = { bas: null, bit: d.bit, taslakDahil: d.taslakDahil, haricKapanis: ["bilanco-kapanis", "acilis"] }
+  const [bilancoMizani, donemMizani, hesapsiz] = await Promise.all([
+    mizan(defterId, bilancoDonemi),
+    mizan(defterId, { bas: d.bas, bit: d.bit, taslakDahil: d.taslakDahil, haricKapanis: ["gelir-kapanis"] }),
+    d.taslakDahil ? mizanHesapsiz(defterId, bilancoDonemi) : null,
+  ])
+  return { bilancoMizani, donemMizani, hesapsiz }
+}

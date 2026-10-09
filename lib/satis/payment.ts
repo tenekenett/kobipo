@@ -182,8 +182,15 @@ export type DefaultPaymentAccounts = { cashAccountId?: string; bankAccountId?: s
  * SUNUCU (lib/restoran/close-with-receipt.ts, ÖKC webhook'u) AYNI kuralı kullanır;
  * ayrı yazılsaydı aynı kart ödemesi ekrandan POS'a, cihazdan kasaya düşebilirdi.
  * `accounts` aktif kanallardır, ada göre sıralı (/api/finans/accounts ile aynı).
+ *
+ * Yalnız TL hesaplar kanal olur: fatura tahsilatı cari bakiyesi gibi TL tutulur ve çekirdek
+ * dövizli hesabı reddeder (lib/finans/create-invoice-payment.ts). Döviz kasası "ilk CASH"
+ * olarak seçilseydi satış tamamlanamazdı.
  */
-export function defaultPaymentAccounts(accounts: Array<{ id: string; type: string }>): DefaultPaymentAccounts {
+export function defaultPaymentAccounts(
+  hesaplar: Array<{ id: string; type: string; currency?: string | null }>,
+): DefaultPaymentAccounts {
+  const accounts = hesaplar.filter((a) => (a.currency || "TRY").toUpperCase() === "TRY")
   return {
     cashAccountId: accounts.find((a) => a.type === "CASH")?.id,
     cardAccountId: accounts.find((a) => a.type === "CREDIT_CARD" || a.type === "POS")?.id,

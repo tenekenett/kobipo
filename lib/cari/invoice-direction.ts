@@ -15,14 +15,14 @@
 // `returnKind` NULL = satış iadesi: sütun eklenmeden önce kesilmiş iadeler o gün
 // tek yönlüydü (bkz. 20260825000001_invoice_return_kind.sql).
 
+import { faturaKuru } from "@/lib/cari/doviz"
+
 export type DirectionalInvoice = {
   type: string
   returnKind?: string | null
 }
 
 /** Malı TEDARİKÇİYE geri gönderdiğimiz iade mi? */
-
-import { faturaKuru } from "@/lib/cari/doviz"
 export function isPurchaseReturn(inv: DirectionalInvoice): boolean {
   return (
     String(inv.type || "").toUpperCase() === "RETURN" &&

@@ -75,6 +75,7 @@ interface FinancialAccount {
   id: string
   name: string
   type: string
+  currency?: string | null
 }
 
 interface PaymentLink {
@@ -347,7 +348,7 @@ export default function FaturaOdemelerPage() {
     }).format(amount)
   }
   const odemeKuru = Number(String(formData.exchangeRate).replace(",", ".")) || Number(invoice?.exchangeRate) || 0
-  const kasayaTl = dovizli && odemeKuru > 0 ? Math.round(Number(formData.amount || 0) * odemeKuru * 100) / 100 : null
+  const kasayaTl = dovizli && odemeKuru > 0 && Number(formData.amount) > 0 ? Math.round(Number(formData.amount) * odemeKuru * 100) / 100 : null
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("tr-TR")
@@ -712,7 +713,8 @@ export default function FaturaOdemelerPage() {
                       <SelectValue placeholder="Hesap seçiniz" />
                     </SelectTrigger>
                     <SelectContent>
-                      {accounts.map((account) => (
+                      {/* Fatura ödemesi yalnız TL hesaba yazılır (cari TL tutulur; çekirdek dövizli hesabı reddeder). */}
+                      {accounts.filter((a) => (a.currency || "TRY").toUpperCase() === "TRY").map((account) => (
                         <SelectItem key={account.id} value={account.id}>
                           {account.name} ({account.type === "CASH" ? "Kasa" : "Banka"})
                         </SelectItem>

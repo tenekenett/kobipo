@@ -168,4 +168,45 @@ describe("satılan malın maliyeti planı", async () => {
     expect(ayBitisAni("2026-09").toISOString()).toBe("2026-09-30T21:00:00.000Z")
     expect(ayBitisAni("2026-12").toISOString()).toBe("2026-12-31T21:00:00.000Z")
   })
+  it("ay başı sınırı İstanbul gece yarısı (önceki ayın sonuyla aynı an)", async () => {
+    const { ayBaslangicAni } = await import("./stok-maliyeti")
+    expect(ayBaslangicAni("2026-09").toISOString()).toBe("2026-08-31T21:00:00.000Z")
+    expect(ayBaslangicAni("2026-01").getTime()).toBe(ayBitisAni("2025-12").getTime())
+  })
+  it("faturasız stok girişi maliyetten düşülmez: B 153 · A 397 ayrı satır", () => {
+    // 153'te 10.000, ay içinde faturasız 2.000 girdi, ay sonu stok 11.000 → satılan 1.000.
+    const p = smmPlani({
+      ay: "2026-09", stok153: [{ kod: "153", bakiye: 10000 }], stokDegeri: 11000, faturasizGiris: 2000,
+      maliyetHesabi: "621", stokYapragi: "153", fazlaHesabi: "397",
+    })
+    expect(p.maliyet).toBe(1000)
+    expect(p.faturasizGiris).toBe(2000)
+    expect(p.satirlar.map((s) => `${s.taraf} ${s.kod} ${s.tutar}`)).toEqual(["B 153 2000", "A 397 2000", "B 621 1000", "A 153 1000"])
+    expect(p.uyarilar).toEqual([])
+    const borc = p.satirlar.filter((s) => s.taraf === "B").reduce((a, s) => a + s.tutar, 0)
+    const alacak = p.satirlar.filter((s) => s.taraf === "A").reduce((a, s) => a + s.tutar, 0)
+    expect(borc).toBe(alacak)
+  })
+  it("yalnız faturasız giriş, maliyet 0 → yalnız 397 çifti, hata yok", () => {
+    const p = smmPlani({
+      ay: "2026-09", stok153: [{ kod: "153", bakiye: 1000 }], stokDegeri: 1500, faturasizGiris: 500,
+      maliyetHesabi: "621", stokYapragi: "153", fazlaHesabi: "397",
+    })
+    expect(p.maliyet).toBe(0)
+    expect(p.hatalar).toEqual([])
+    expect(p.satirlar.map((s) => `${s.taraf} ${s.kod} ${s.tutar}`)).toEqual(["B 153 500", "A 397 500"])
+  })
+  it("faturasız giriş varken 397 seçilmemişse hata, satır yok", () => {
+    const p = smmPlani({
+      ay: "2026-09", stok153: [{ kod: "153", bakiye: 1000 }], stokDegeri: 900, faturasizGiris: 300,
+      maliyetHesabi: "621", stokYapragi: "153", fazlaHesabi: null,
+    })
+    expect(p.hatalar.some((h) => h.includes("397"))).toBe(true)
+    expect(p.satirlar).toEqual([])
+  })
+  it("eksi faturasız giriş sayılmaz (çıkışlar maliyette kalır)", () => {
+    const p = smmPlani({ ay: "2026-09", stok153: [{ kod: "153", bakiye: 1000 }], stokDegeri: 600, faturasizGiris: -50, maliyetHesabi: "621", stokYapragi: "153" })
+    expect(p.faturasizGiris).toBe(0)
+    expect(p.maliyet).toBe(400)
+  })
 })

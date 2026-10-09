@@ -6,6 +6,7 @@ import { DATASETS, isKnownDataset, listDatasets } from "@/lib/export/datasets"
 import { exportResponse } from "@/lib/export/response"
 import { isExportFormat } from "@/lib/export/types"
 import { accessDeniedResponse, withApiErrors } from "@/lib/api/errors"
+import { BadRequestError } from "@/lib/http/query-params"
 
 export const dynamic = "force-dynamic"
 // Büyük listelerde XLSX/PDF üretimi varsayılan 10 sn'yi aşabiliyor.
@@ -84,6 +85,11 @@ export const GET = withApiErrors(async function GET(
     }
     if (message.toLowerCase().includes("unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    // Veri kümesinin kendi 4xx'i (ör. muhasebe: kurulum yok, hesap yok, dönem seçilmedi).
+    const status = typeof error?.status === "number" ? error.status : error instanceof BadRequestError ? 400 : 0
+    if (status >= 400 && status < 500) {
+      return NextResponse.json({ error: message }, { status })
     }
     console.error("export route error:", error)
     return NextResponse.json(

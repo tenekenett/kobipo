@@ -208,3 +208,38 @@ export function kapanisPlani(g: {
   }
   return { fisler, netKar, hatalar, uyarilar }
 }
+
+const AY_ADLARI = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+
+/**
+ * Kapanıştan önce bilinmesi gerekenler — ENGEL değil, uyarı (2026-10-09). Kapanış satılan malın
+ * maliyetini sayım tutarıyla (153 − sayım) kurar; yılın aylık maliyeti yazılmamış aylarda bu,
+ * o ayların FATURASIZ stok girişini de maliyete katar (aylık hesap onu 397'ye ayırırdı —
+ * stok-maliyeti.ts). 397'de kalan faturasız giriş ise kapanışla aktarılmaz: geç girilmiş açılış
+ * stoğu mu (sermaye / geçmiş yıl kârı), sayım fazlası mı (679) — müşavirin kararıdır.
+ */
+export function kapanisAySonuUyarilari(g: {
+  yil: number
+  /** Kobipo'da stok hareketi var mı (yoksa aylık maliyet zaten "gerekmez"). */
+  stokTakibi: boolean
+  /** Yılın maliyeti yazılmamış ya da güncel olmayan ayları ("YYYY-AA"). */
+  smmBekleyen: string[]
+  /** 397 Sayım ve Tesellüm Fazlaları'nın yıl sonu alacak bakiyesi. */
+  fazla397: number
+}): string[] {
+  const u: string[] = []
+  const aylar = g.smmBekleyen.filter((a) => a.startsWith(`${g.yil}-`)).sort()
+  if (g.stokTakibi && aylar.length > 0) {
+    const adlar = aylar.map((a) => AY_ADLARI[Number(a.slice(5, 7)) - 1])
+    u.push(
+      `${adlar.join(", ")} için satılan malın maliyeti yazılmadı ya da güncel değil. Kapanış maliyeti sayım tutarıyla kurar ve bu ayların faturasız stok girişini (ürün kartından açılış stoğu, elle düzeltme) de maliyete katar — kâr olduğundan düşük görünür. Önce Ay Sonu İşlemleri'nde bu ayları yazın.`,
+    )
+  }
+  const fazla = r2(g.fazla397)
+  if (fazla > 0) {
+    u.push(
+      `397 Sayım ve Tesellüm Fazlaları'nda ${fazla.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ faturasız stok girişi duruyor; kapanış bunu aktarmaz. Muhasebecinizle karar verip elle fişle aktarın: geç girilmiş açılış stoğuysa sermaye ya da geçmiş yıl kârına, sayım fazlasıysa 679 Diğer Olağandışı Gelir ve Kârlar'a.`,
+    )
+  }
+  return u
+}

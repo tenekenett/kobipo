@@ -163,6 +163,8 @@ describe("muhasebe motoru — canlı veriyle defter tutarlılığı", () => {
       )
       expect(sorunlar, sorunlar.slice(0, 40).join("\n")).toEqual([])
     },
-    600_000,
+    // Süre veritabanı turuyla doğrusal (defter başına ~20 ardışık sorgu): ~420 ms turda ~4,5 dk,
+    // 2026-10-09 gecesi ~750 ms turda 10 dk sınırını aştı — doğrulama değil süre düşürüyordu.
+    1_200_000,
   )
 })

@@ -75,7 +75,7 @@ async function oturum(companyId) {
     secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET,
   })
   const cookie = `next-auth.session-token=${token}`
-  return async (method, path, body) => {
+  const istek = async (method, path, body) => {
     let res
     try {
       res = await fetch(`${BASE}${path}`, {
@@ -96,6 +96,9 @@ async function oturum(companyId) {
     }
     return { status: res.status, body: json }
   }
+  /** Dosya indiren uçlar (dışa aktarım): ham yanıt. */
+  istek.ham = (path) => fetch(`${BASE}${path}`, { headers: { cookie } })
+  return istek
 }
 
 async function main() {
@@ -131,7 +134,7 @@ async function main() {
   const q = `companyId=${R}`
   let manuelFaturaId = null
   // 8b'nin gerçek modüllerde açtıkları — BIRAK olsa da silinir (test verisi Reypo'da kalmasın).
-  const temizlik = { bordrolar: [], cekler: [], virmanlar: [], hareketler: [], hesaplar: [], turluHareketler: [] }
+  const temizlik = { bordrolar: [], cekler: [], virmanlar: [], hareketler: [], hesaplar: [], turluHareketler: [], dovizOdemeler: [], dovizFaturalar: [] }
 
   console.log(`Firma : ${firma.name}\nSunucu: ${BASE}\n`)
   try {
@@ -139,6 +142,8 @@ async function main() {
     console.log("0) Modül kapalıyken uçlar MODULE_LOCKED")
     const kapali = await api("GET", `/api/muhasebe/ayarlar?${q}`)
     check("modül kapalı → 403 MODULE_LOCKED", kapali.status === 403 && kapali.body?.code === "MODULE_LOCKED", kapali.status)
+    const kapaliDosya = await api("GET", `/api/export/muhasebe-mizan?${q}&format=csv`)
+    check("modül kapalı → muhasebe dışa aktarımı da 403", kapaliDosya.status === 403, kapaliDosya.status)
 
     // Bedelsiz ver (sistem-admin kartının yaptığı: grantedModules + disabledModules'tan çıkar).
     await prisma.company.update({
@@ -466,6 +471,51 @@ async function main() {
     )
     check("özet adımları sıralı (açılış ilk)", oz.body.adimlar?.[0]?.anahtar === "acilis", oz.body.adimlar?.map((a) => a.anahtar).join(","))
     check("özet rakamları: onaylı net kâr = gelir tablosu (yıl başından bugüne)", typeof oz.body.rakamlar?.onayli?.sonuc === "number", oz.body.rakamlar?.onayli?.sonuc)
+    // Gider türetilmez: satış dışı gelir (Reypo'da 649'a düşen 2 milyon TL) gideri eksiye çekmemeli.
+    const ozr = oz.body.rakamlar ?? {}
+    check(
+      "özet: satış + satış dışı gelir − gider = kâr, gider eksi değil",
+      ["onayli", "taslakDahil"].every((k) => ozr[k] && r2(ozr[k].netSatis + ozr[k].digerGelirler - ozr[k].giderler) === r2(ozr[k].sonuc) && ozr[k].giderler >= 0),
+      ["onayli", "taslakDahil"].map((k) => `${k}: ${ozr[k]?.netSatis} + ${ozr[k]?.digerGelirler} − ${ozr[k]?.giderler} = ${ozr[k]?.sonuc}`).join(" · "),
+    )
+
+    // ── 7e. Dışa aktarım (mizan, yevmiye, kebir, mali tablolar) ────────────────
+    console.log("\n7e) Dışa aktarım — dosya ekranın ucuyla aynı rakamı verir")
+    {
+      const yil = "bas=2026-01-01&bit=2026-12-31"
+      const csv = async (dataset, ek = "") => {
+        const r = await api.ham(`/api/export/${dataset}?${q}&${yil}&format=csv${ek}`)
+        return { status: r.status, tip: r.headers.get("content-type") ?? "", metin: await r.text() }
+      }
+      // CSV ham sayı yazar (lib/export/values.ts → formatCellRaw): hücre hücre sayıya çevrilir.
+      const sayilar = (satir) => satir.split(",").map((c) => c.replaceAll('"', "").trim()).filter((c) => c !== "" && Number.isFinite(Number(c))).map((c) => r2(Number(c)))
+      const toplamSatiri = (metin) => metin.trim().split(/\r?\n/).reverse().find((l) => /Toplam/.test(l)) ?? ""
+      const mzEkran = (await api("GET", `/api/muhasebe/mizan?${q}&${yil}`)).body.toplamlar?.["3"]
+      const mzDosya = await csv("muhasebe-mizan")
+      const mzSayi = sayilar(toplamSatiri(mzDosya.metin))
+      check(
+        "mizan CSV'si: toplam borç/alacak = ekran (kebir düzeyi)",
+        mzDosya.status === 200 && mzSayi.includes(r2(mzEkran?.toplamBorc)) && mzSayi.includes(r2(mzEkran?.toplamAlacak)),
+        `${mzDosya.status} · ekran ${mzEkran?.toplamBorc}/${mzEkran?.toplamAlacak} · dosya ${mzSayi.join(" ")}`,
+      )
+      const yvEkran = (await api("GET", `/api/muhasebe/yevmiye?${q}&${yil}`)).body
+      const yvDosya = await csv("muhasebe-yevmiye")
+      check(
+        "yevmiye CSV'si: borç = alacak = ekran toplamı",
+        yvDosya.status === 200 && sayilar(toplamSatiri(yvDosya.metin)).filter((x) => x === r2(yvEkran.borc)).length >= 2,
+        `${yvDosya.status} · ekran ${yvEkran.borc} · ${yvEkran.toplam} madde`,
+      )
+      const kbDosya = await csv("muhasebe-kebir", "&hesap=120")
+      const kbEkran = (await api("GET", `/api/muhasebe/kebir?${q}&hesap=120&${yil}`)).body
+      check("kebir CSV'si (120): borç toplamı = ekran", kbDosya.status === 200 && sayilar(toplamSatiri(kbDosya.metin)).includes(r2(kbEkran.borc)), `${kbDosya.status} · ${kbEkran.borc}`)
+      const kbYok = await csv("muhasebe-kebir")
+      check("kebirde hesap yoksa 400 (500 değil)", kbYok.status === 400, kbYok.status)
+      const mtX = await api.ham(`/api/export/muhasebe-mali-tablolar?${q}&${yil}&format=xlsx`)
+      const mtBoyut = (await mtX.arrayBuffer()).byteLength
+      check("bilanço + gelir tablosu Excel'i iner", mtX.status === 200 && /spreadsheet/.test(mtX.headers.get("content-type") ?? "") && mtBoyut > 2000, `${mtX.status} · ${mtBoyut} bayt`)
+      const mzPdf = await api.ham(`/api/export/muhasebe-mizan?${q}&${yil}&format=pdf`)
+      check("mizan PDF'i iner", mzPdf.status === 200 && /pdf/.test(mzPdf.headers.get("content-type") ?? ""), mzPdf.status)
+    }
 
     // ── 7c. KDV mahsubu ──────────────────────────────────────────────────────
     console.log("\n7c) KDV mahsubu")
@@ -565,17 +615,26 @@ async function main() {
       check("maliyet ön izlemesi engeli/hatası açıklanır", true, [...sOn.engeller, ...sOn.plan.hatalar].join(" | "))
     } else {
       const ay2 = smm.body.ay
+      const fg = r2(sOn.plan.faturasizGiris)
       check(
-        "ön izleme: maliyet = 153 bakiyesi − stok değeri",
-        r2(sOn.plan.maliyet) === r2(sOn.plan.stokHesabi - sOn.plan.stokDegeri),
-        `${sOn.plan.stokHesabi} − ${sOn.plan.stokDegeri} = ${sOn.plan.maliyet} (${sOn.stok.urunSayisi} ürün, maliyetsiz ${sOn.stok.maliyetsiz.length})`,
+        "ön izleme: maliyet = 153 bakiyesi + faturasız giriş − stok değeri",
+        r2(sOn.plan.maliyet) === r2(sOn.plan.stokHesabi + fg - sOn.plan.stokDegeri) && fg === r2(sOn.faturasiz.deger),
+        `${sOn.plan.stokHesabi} + ${fg} − ${sOn.plan.stokDegeri} = ${sOn.plan.maliyet} (${sOn.stok.urunSayisi} ürün, maliyetsiz ${sOn.stok.maliyetsiz.length})`,
       )
-      const yapS = await api("POST", "/api/muhasebe/stok-maliyeti", { companyId: R, ay: ay2, islem: "yap", maliyet: sOn.secim.maliyet, stok: sOn.secim.stok })
+      if (ay2 === "2026-07") {
+        // Reypo Temmuz: keçeye 181 adetlik fiyatsız elle düzeltme — eskiden maliyeti −2,5 milyon yapıyordu.
+        check("Temmuz'un faturasız stok girişi ayrıldı (elle düzeltme)", fg > 0 && sOn.faturasiz.urunler.length > 0, `${fg} · ${sOn.faturasiz.urunler.slice(0, 2).map((u) => `${u.ad}:${u.miktar}`).join(", ")}`)
+      }
+      const yapS = await api("POST", "/api/muhasebe/stok-maliyeti", { companyId: R, ay: ay2, islem: "yap", maliyet: sOn.secim.maliyet, stok: sOn.secim.stok, fazla: sOn.secim.fazla })
       check(`${ay2} maliyeti yazıldı`, yapS.status === 200, JSON.stringify(yapS.body).slice(0, 120))
-      const sf = await prisma.journalVoucher.findFirst({ where: { companyId: R, sourceType: "STOK_MALIYET", sourceId: ay2 }, select: { status: true, lines: { select: { side: true, amount: true } } } })
+      const sf = await prisma.journalVoucher.findFirst({ where: { companyId: R, sourceType: "STOK_MALIYET", sourceId: ay2 }, select: { status: true, lines: { select: { side: true, amount: true, role: true } } } })
       const sb = r2((sf?.lines ?? []).filter((l) => l.side === "DEBIT").reduce((a, l) => a + Number(l.amount), 0))
       const sa = r2((sf?.lines ?? []).filter((l) => l.side === "CREDIT").reduce((a, l) => a + Number(l.amount), 0))
-      check("maliyet fişi onaylı, dengeli, tutar = |maliyet|", sf?.status === "POSTED" && sb === sa && sb === r2(Math.abs(sOn.plan.maliyet)), `${sb}/${sa}`)
+      check("maliyet fişi onaylı, dengeli, tutar = |maliyet| + faturasız giriş", sf?.status === "POSTED" && sb === sa && sb === r2(Math.abs(sOn.plan.maliyet) + fg), `${sb}/${sa}`)
+      if (fg > 0) {
+        const fazla = sf?.lines.find((l) => l.role === "SMM_FAZLA")
+        check("faturasız giriş 397'ye alacak (B 153 · A 397)", fazla?.side === "CREDIT" && r2(fazla.amount) === fg, fazla ? `${fazla.side} ${fazla.amount}` : "satır yok")
+      }
       const mzS = await api("GET", `/api/muhasebe/mali-tablolar?${q}&bas=${ay2}-01&bit=${new Date(Date.UTC(Number(ay2.slice(0, 4)), Number(ay2.slice(5, 7)), 0)).toISOString().slice(0, 10)}`)
       const smmKalemi = mzS.body.gelirTablosu?.kalemler.find((k) => k.kod === "D")
       check("gelir tablosunda satışların maliyeti dolu", r2(smmKalemi?.tutar) === r2(sOn.plan.maliyet), smmKalemi?.tutar)
@@ -799,6 +858,91 @@ async function main() {
     const amKalan = await prisma.journalVoucher.count({ where: { companyId: R, sourceType: "DEPRECIATION" } })
     check("demirbaş silinince amortisman taslakları kalktı", amKalan === 0, amKalan)
 
+    // ── 8f. Dövizli fatura ve ödemesi (B6) ───────────────────────────────────
+    console.log("\n8f) Dövizli fatura — cariye fatura kuruyla, ödeme kasaya TL, kur farkı caride")
+    {
+      const kartBakiye = async () => r2((await api("GET", `/api/cari/customers/${musteri.id}?${q}`)).body.balance)
+      const kasaBakiye = async () => r2((await prisma.financialAccount.findUnique({ where: { id: tlHesap }, select: { balance: true } })).balance)
+      const cariOnce = await kartBakiye()
+      const kasaOnce = await kasaBakiye()
+      const usdFat = await api("POST", "/api/e-donusum/invoices", {
+        companyId: R, type: "SALES", invoiceType: "MANUAL", customerId: musteri.id, date: bugun,
+        currency: "USD", exchangeRate: 30, notes: "TEST dövizli fatura",
+        items: [{ description: "TEST USD kalemi", quantity: 1, unitPrice: 100, vatRate: 20 }],
+      })
+      check("USD fatura kaydedildi (120 USD, kur 30)", usdFat.status === 201 && r2(usdFat.body.totalAmount) === 120, `${usdFat.status} ${usdFat.body?.totalAmount ?? usdFat.body?.error}`)
+      if (usdFat.body?.id) temizlik.dovizFaturalar.push(usdFat.body.id)
+      check("cari kartı +3.600 TL (120 × 30)", r2((await kartBakiye()) - cariOnce) === 3600, r2((await kartBakiye()) - cariOnce))
+      const usdCari = (await fisOf("INVOICE", usdFat.body?.id))?.lines.find((l) => l.role === "CARI")
+      check("fatura fişinin cari satırı 3.600 TL", usdCari && r2(usdCari.amount) === 3600, usdCari?.amount ?? "fiş yok")
+
+      const odeme = (extra) => api("POST", "/api/faturalar/odemeler", { companyId: R, invoiceId: usdFat.body?.id, paymentDate: bugun, ...extra })
+      const usdKasa = await prisma.financialAccount.findFirst({ where: { companyId: R, currency: { not: "TRY" }, isActive: true }, select: { id: true } })
+      if (usdKasa) {
+        const dovizKasa = await odeme({ amount: 10, paymentMethod: "BANK_TRANSFER", accountId: usdKasa.id })
+        check("dövizli hesaba fatura ödemesi 400", dovizKasa.status === 400, dovizKasa.body?.error)
+        if (dovizKasa.body?.id) temizlik.dovizOdemeler.push(dovizKasa.body.id)
+      }
+      const tahsil = await odeme({ amount: 50, paymentMethod: "BANK_TRANSFER", accountId: tlHesap, exchangeRate: "32" })
+      if (tahsil.body?.id) temizlik.dovizOdemeler.push(tahsil.body.id)
+      const tx = tahsil.body?.transactionId
+        ? await prisma.transaction.findUnique({ where: { id: tahsil.body.transactionId }, select: { amount: true, currency: true } })
+        : null
+      check("50 USD tahsilat kasaya TL (50 × 32 = 1.600)", tahsil.status === 201 && tx?.currency === "TRY" && r2(tx.amount) === 1600, `${tahsil.status} ${tx?.amount} ${tx?.currency} ${tahsil.body?.error ?? ""}`)
+      check("kasa bakiyesi +1.600", r2((await kasaBakiye()) - kasaOnce) === 1600, r2((await kasaBakiye()) - kasaOnce))
+      const txFis = await fisOf("TRANSACTION", tahsil.body?.transactionId)
+      const txPara = txFis?.lines.find((l) => l.role === "PARA")
+      check("tahsilat fişi TL (1.600)", txPara && r2(txPara.amount) === 1600, txPara?.amount ?? "fiş yok")
+
+      const kapama = await odeme({ amount: 70, paymentMethod: "WRITE_OFF" })
+      if (kapama.body?.id) temizlik.dovizOdemeler.push(kapama.body.id)
+      // 3.600 − 1.600 (kasaya giren TL) − 70 × 30 (kasasız, fatura kuruyla) = −100: lehe kur farkı caride görünür.
+      check("kalan 70 USD bakiye kapama → cari −100 TL (kur farkı görünür)", kapama.status === 201 && r2((await kartBakiye()) - cariOnce) === -100, `${kapama.status} ${r2((await kartBakiye()) - cariOnce)}`)
+      const kapamaCari = (await fisOf("PAYMENT", kapama.body?.id))?.lines.find((l) => l.role === "CARI")
+      check("bakiye kapama fişi fatura kuruyla (2.100)", kapamaCari && r2(kapamaCari.amount) === 2100, kapamaCari?.amount ?? "fiş yok")
+
+      const kursuz = await api("POST", "/api/e-donusum/invoices", {
+        companyId: R, type: "SALES", invoiceType: "MANUAL", customerId: musteri.id, date: bugun, currency: "USD", notes: "TEST kursuz dövizli",
+        items: [{ description: "TEST USD kalemi", quantity: 1, unitPrice: 10, vatRate: 20 }],
+      })
+      if (kursuz.body?.id) {
+        temizlik.dovizFaturalar.push(kursuz.body.id)
+        const kursuzOdeme = await api("POST", "/api/faturalar/odemeler", { companyId: R, invoiceId: kursuz.body.id, amount: 5, paymentMethod: "CASH", accountId: tlHesap, paymentDate: bugun })
+        check("kursuz dövizli faturaya kursuz ödeme 400", kursuzOdeme.status === 400, kursuzOdeme.body?.error)
+        if (kursuzOdeme.body?.id) temizlik.dovizOdemeler.push(kursuzOdeme.body.id)
+      }
+
+      // Silme: bağlı hareketin TL tutarı kasadan geri alınır (döviz tutarı DEĞİL).
+      const silT = await api("DELETE", `/api/faturalar/odemeler/${tahsil.body?.id}?${q}`)
+      check("tahsilat silindi → kasa eski bakiyesine döndü", silT.status === 200 && (await kasaBakiye()) === kasaOnce, `${silT.status} ${r2((await kasaBakiye()) - kasaOnce)}`)
+      temizlik.dovizOdemeler = temizlik.dovizOdemeler.filter((id) => id !== tahsil.body?.id)
+    }
+
+    // ── 8g. Gece mutabakatı (D1) ─────────────────────────────────────────────
+    console.log("\n8g) Gece mutabakatı — bildirmeyen yolun fişi gece açılır/kalkar")
+    const cronSirri = (process.env.CRON_SECRET || process.env.BILLING_CRON_SECRET || "").trim()
+    if (!cronSirri) {
+      console.log("  ~ CRON_SECRET / BILLING_CRON_SECRET yok — gece mutabakatı adımı atlandı")
+    } else {
+      const gece = async () => {
+        const res = await fetch(`${BASE}/api/muhasebe/cron/mutabakat`, { method: "POST", headers: { Authorization: `Bearer ${cronSirri}` } })
+        return { status: res.status, body: await res.json().catch(() => ({})) }
+      }
+      const anahtarsiz = await fetch(`${BASE}/api/muhasebe/cron/mutabakat`, { method: "POST" })
+      check("anahtarsız istek 401", anahtarsiz.status === 401, anahtarsiz.status)
+      // Bildirmeyen yolu taklit: hareket doğrudan yazılır (muhasebeyeBildir çağrılmaz, kasa bakiyesine dokunulmaz).
+      const sessiz = await prisma.transaction.create({
+        data: { companyId: R, accountId: tlHesap, type: "EXPENSE", amount: 77, currency: "TRY", date: new Date(`${bugun}T00:00:00Z`), description: "TEST gece mutabakatı" },
+      })
+      temizlik.hareketler.push(sessiz.id)
+      check("bildirmeyen hareketin fişi yok", !(await fisOf("TRANSACTION", sessiz.id)))
+      const g1 = await gece()
+      check("gece mutabakatı fişi açtı", g1.status === 200 && g1.body.ok && g1.body.acilan >= 1 && !!(await fisOf("TRANSACTION", sessiz.id)), JSON.stringify(g1.body))
+      await prisma.transaction.delete({ where: { id: sessiz.id } })
+      const g2 = await gece()
+      check("kaynak silinince gece mutabakatı fişi kaldırdı", g2.status === 200 && g2.body.silinen >= 1 && !(await fisOf("TRANSACTION", sessiz.id)), JSON.stringify(g2.body))
+    }
+
     // ── 9. Şube ──────────────────────────────────────────────────────────────
     console.log("\n9) Şubede modül kapalı (defter ana firmada)")
     for (const sube of firma.branches.slice(0, 1)) {
@@ -816,8 +960,20 @@ async function main() {
     const kp = await api("GET", `/api/muhasebe/kapanis?${q}&yil=2026&stok=0`)
     check("ön izleme çalışır", kp.status === 200, `${kp.body.fisler?.length} fiş · net ${kp.body.netKar}`)
     check("taslak varken kapanış engellenir", kp.body.taslak === 0 || kp.body.engeller?.some((e) => e.includes("taslak")), kp.body.engeller?.[0])
+    // Reypo'da stok takibi var, 2026'nın aylık maliyetleri yazılmadı (7d geri aldı): kapanış uyarır.
+    check(
+      "kapanış ön izlemesi yazılmamış aylık maliyeti uyarır",
+      kp.body.uyarilar?.some((u) => u.includes("satılan malın maliyeti yazılmadı")),
+      (kp.body.uyarilar ?? []).map((u) => u.slice(0, 60)).join(" | "),
+    )
   } finally {
     if (manuelFaturaId) await api("DELETE", `/api/e-donusum/invoices/${manuelFaturaId}?${q}`).catch(() => {})
+    // 8f: ödemeler uçtan silinir (kasa geri yazılır), sonra faturalar.
+    for (const id of temizlik.dovizOdemeler) await api("DELETE", `/api/faturalar/odemeler/${id}?${q}`).catch(() => {})
+    for (const id of temizlik.dovizFaturalar) {
+      const s = await api("DELETE", `/api/e-donusum/invoices/${id}?${q}`).catch(() => null)
+      if (s?.status !== 200) console.log(`  ! dövizli test faturası silinemedi: ${id} (${s?.status})`)
+    }
     for (const id of temizlik.bordrolar) await prisma.payrollRecord.deleteMany({ where: { id } })
     for (const id of temizlik.cekler) await prisma.check.deleteMany({ where: { id } })
     for (const v of temizlik.virmanlar) {

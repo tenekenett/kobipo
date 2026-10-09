@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/db/prisma"
 import { gunParam, kuruluDefter, muhasebeGirisi, muhasebeUcu } from "@/lib/muhasebe/istek.server"
-import { mizan, mizanHesapsiz } from "@/lib/muhasebe/defter-sorgu.server"
+import { maliTabloMizanlari } from "@/lib/muhasebe/defter-sorgu.server"
 import { bilancoKur, gelirTablosuKur, tabloNotlari } from "@/lib/muhasebe/mali-tablolar"
 import { FisHatasi } from "@/lib/muhasebe/onay.server"
 
@@ -27,13 +27,8 @@ export const GET = muhasebeUcu(async (request: Request) => {
   const bit = gunParam(sp.get("bit"), "Bitiş")
   if (!bas || !bit) throw new FisHatasi("Dönem seçin.")
   const taslakDahil = sp.get("taslak") === "1"
-  const [bilancoMizani, donemMizani, hesapsiz, durumlar] = await Promise.all([
-    // Yıl sonu kapanış ve ertesi yıl açılış fişi birbirini tam götürür: ikisi birlikte
-    // dışlanır. Yalnız kapanış dışlansaydı ertesi yıla uzanan dönemde açılış bakiyeleri
-    // iki kez sayılırdı.
-    mizan(defter.defterId, { bas: null, bit, taslakDahil, haricKapanis: ["bilanco-kapanis", "acilis"] }),
-    mizan(defter.defterId, { bas, bit, taslakDahil, haricKapanis: ["gelir-kapanis"] }),
-    taslakDahil ? mizanHesapsiz(defter.defterId, { bas: null, bit, taslakDahil, haricKapanis: ["bilanco-kapanis", "acilis"] }) : null,
+  const [{ bilancoMizani, donemMizani, hesapsiz }, durumlar] = await Promise.all([
+    maliTabloMizanlari(defter.defterId, { bas, bit, taslakDahil }),
     prisma.journalVoucher.groupBy({
       by: ["status"],
       where: { companyId: defter.defterId, date: { lte: bit } },

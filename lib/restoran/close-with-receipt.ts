@@ -130,7 +130,7 @@ export async function closeTicketWithReceipt(args: {
     const accounts = await prisma.financialAccount.findMany({
       where: { companyId, isActive: true },
       orderBy: { name: "asc" },
-      select: { id: true, type: true },
+      select: { id: true, type: true, currency: true },
     })
     const defaults = defaultPaymentAccounts(accounts)
 

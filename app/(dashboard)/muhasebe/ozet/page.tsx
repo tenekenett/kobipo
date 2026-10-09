@@ -149,10 +149,18 @@ export default function MuhasebeOzetiPage() {
 }
 
 function Rakamlar({ onayli, taslak, bekleyen }: { onayli: OzetRakamlari; taslak: OzetRakamlari; bekleyen: number }) {
+  // Satış dışı gelir (faiz, kira, olağandışı kâr) kâra girer ama satış da gider de değildir.
+  const digerGelir = Math.abs(onayli.digerGelirler) >= 0.01 || Math.abs(taslak.digerGelirler) >= 0.01
   const kutular: Array<{ ad: string; aciklama: string; k: keyof OzetRakamlari }> = [
     { ad: "Net satışlar", aciklama: "İadeler düşülmüş satışlar (KDV hariç)", k: "netSatis" },
     { ad: "Giderler", aciklama: "Satılan malın maliyeti dahil bütün giderler", k: "giderler" },
-    { ad: "Kâr / zarar", aciklama: "Net satışlar − giderler", k: "sonuc" },
+    {
+      ad: "Kâr / zarar",
+      aciklama: digerGelir
+        ? `Net satışlar + satış dışı gelirler (${tl(onayli.digerGelirler)}${Math.abs(onayli.digerGelirler - taslak.digerGelirler) >= 0.01 ? `; onay bekleyenlerle ${tl(taslak.digerGelirler)}` : ""}) − giderler`
+        : "Net satışlar − giderler",
+      k: "sonuc",
+    },
     { ad: "Kasa ve banka", aciklama: "Bugünkü hazır değerler", k: "hazirDegerler" },
     { ad: "Müşterilerden alacak", aciklama: "Ticari alacaklar (120, 121)", k: "alacaklar" },
     { ad: "Tedarikçilere borç", aciklama: "Ticari borçlar (320, 321)", k: "borclar" },
@@ -183,8 +191,8 @@ function Rakamlar({ onayli, taslak, bekleyen }: { onayli: OzetRakamlari; taslak:
       </div>
       <p className="text-xs text-kobipo-gray">
         Büyük rakamlar yalnız onaylanmış fişlerdendir (resmî defter).
-        {fark && bekleyen > 0 && ` ${bekleyen} fiş henüz onaylanmadığı için "onay bekleyenlerle" satırı farklı.`} Satılan malın maliyeti yıl
-        sonu stok sayımıyla hesaplandığından yıl içinde kâr olduğundan yüksek görünebilir.
+        {fark && bekleyen > 0 && ` ${bekleyen} fiş henüz onaylanmadığı için "onay bekleyenlerle" satırı farklı.`} Satılan malın
+        maliyeti Ay Sonu İşlemleri'nde yazılır; yazılmamış aylarda kâr olduğundan yüksek görünür.
       </p>
     </>
   )

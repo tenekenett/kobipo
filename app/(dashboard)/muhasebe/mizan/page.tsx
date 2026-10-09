@@ -16,6 +16,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { ExportButton } from "@/components/export/export-button"
 import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
@@ -139,6 +140,7 @@ export default function MizanPage() {
             <input type="checkbox" checked={taslak} onChange={(e) => setTaslak(e.target.checked)} />
             Taslaklar dahil
           </label>
+          <ExportButton dataset="muhasebe-mizan" companyId={companyId} params={{ bas, bit, duzey, taslak: taslak ? "1" : null }} disabled={!veri} />
         </div>
       </div>
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}

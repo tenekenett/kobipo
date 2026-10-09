@@ -23,6 +23,16 @@ describe("withMethodChannel — tek yöntemli tahsilatın hesabı yöntemi izler
     expect(withMethodChannel({ method: "CREDIT_CARD" }, yalnizKasa)).not.toHaveProperty("accountId")
   })
 
+  it("döviz kasası/bankası varsayılan kanal olmaz (tahsilat TL hesaba yazılır)", () => {
+    const d = defaultPaymentAccounts([
+      { id: "usd-kasa", type: "CASH", currency: "USD" },
+      { id: "kasa", type: "CASH", currency: "TRY" },
+      { id: "eur-banka", type: "BANK", currency: "EUR" },
+      { id: "banka", type: "BANK" },
+    ])
+    expect(d).toEqual({ cashAccountId: "kasa", cardAccountId: undefined, bankAccountId: "banka" })
+  })
+
   it("hesabı açıkça veren ya da yöntem içermeyen değişikliğe dokunmaz", () => {
     expect(withMethodChannel({ method: "CREDIT_CARD", accountId: "kasa" }, ids).accountId).toBe("kasa")
     expect(withMethodChannel({ isCredit: true }, ids)).toEqual({ isCredit: true })

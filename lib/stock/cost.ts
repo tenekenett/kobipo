@@ -36,6 +36,30 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 
 /**
+ * Hareketin BELGE TARİHİ — yalnız tarih sınırlı değerlemede (muhasebenin ay sonu stoğu,
+ * `resolveUnitCostsAsOf` ve lib/muhasebe/stok-maliyeti.server.ts → stokDegeri): faturaya bağlı
+ * hareket faturanın günüyle, irsaliyeye bağlı (`waybill:<id>`) hareket irsaliyenin günüyle,
+ * referanssız elle hareket kayıt anıyla (`createdAt`).
+ *
+ * Defter 153'ü FATURA tarihine yazar; stok kayıt anıyla ölçülseydi geç girilen fatura maliyeti
+ * yanlış aya kaydırırdı. 2026-10-09 ölçümü: EREN FORKLİFT'te Nisan'dan beri alış stok
+ * hareketlerinin %47'si (1,82 M TL) fatura tarihinden başka bir aya düşüyordu, 49 güne kadar
+ * gecikmeyle. İptalin ters hareketi aynı referansı taşıdığı için aynı güne düşer — iptal edilmiş
+ * fatura hiçbir ayda stok bırakmaz (defterde de fişi yok).
+ *
+ * `fatura` ve `irsaliye` takma adlarıyla LEFT JOIN'lenmiş tablolar beklenir (`hareketBelgeJoin`).
+ */
+export const hareketBelgeTarihi = (m: string, fatura: string, irsaliye: string) =>
+  Prisma.raw(`COALESCE(${fatura}.date, ${irsaliye}.date, ${m}."createdAt")`)
+
+/** `hareketBelgeTarihi`nin istediği iki LEFT JOIN (fatura `reference`, irsaliye `waybill:<id>`). */
+export const hareketBelgeJoin = (m: string, fatura: string, irsaliye: string) =>
+  Prisma.raw(
+    `LEFT JOIN invoices ${fatura} ON ${fatura}.id = NULLIF(${m}."reference", '') ` +
+      `LEFT JOIN waybills ${irsaliye} ON ${m}."reference" LIKE 'waybill:%' AND ${irsaliye}.id = substring(${m}."reference" from 9)`,
+  )
+
+/**
  * AVCO ifadesinin gövdesi. Hem raw rapor sorguları (`avgCostCte`) hem de TS
  * tarafı (`resolveUnitCosts`) BUNU kullanır — iki tanımın zamanla ayrışmaması
  * için tek parça olarak duruyor.
@@ -110,10 +134,11 @@ const avgCostSelect = (once?: Date) => Prisma.sql`
              ) AS counts_as_purchase
       FROM stock_movements m
       LEFT JOIN invoices src ON src.id = NULLIF(m."reference", '')
+      ${once ? Prisma.sql`LEFT JOIN waybills src_w ON m."reference" LIKE 'waybill:%' AND src_w.id = substring(m."reference" from 9)` : Prisma.empty}
       WHERE m."productId" = p.id
         AND m."companyId" = p."companyId"
         AND m.quantity <> 0
-        ${once ? Prisma.sql`AND m."createdAt" < ${once}` : Prisma.empty}
+        ${once ? Prisma.sql`AND ${hareketBelgeTarihi("m", "src", "src_w")} < ${once}` : Prisma.empty}
     ) mm
     GROUP BY mm.doc_key
   ) d ON TRUE
@@ -122,7 +147,7 @@ const avgCostSelect = (once?: Date) => Prisma.sql`
 /**
  * Maliyet, `once` ANINDAN ÖNCEKİ hareketlerle (muhasebenin ay sonu stok değerlemesi —
  * lib/muhasebe/stok-maliyeti.server.ts). Kural `avgCostSelect` ile aynı; yalnız sonradan
- * yapılan alış o günün ortalamasına girmez.
+ * yapılan alış o günün ortalamasına girmez. "Önce" BELGE tarihiyle sorulur (`hareketBelgeTarihi`).
  */
 export async function resolveUnitCostsAsOf(
   companyId: string,

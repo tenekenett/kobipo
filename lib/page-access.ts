@@ -807,6 +807,8 @@ export const PAGE_API_RULES: PageApiRule[] = [
   // Export uçlarının tamamı salt okumadır (üçünde de yalnız GET var): dosya üretir,
   // veri değiştirmez. `writePages: []` ile bu sözleşme kural tarafında da yazılı.
   { prefix: "/api/export/rapor-personel", pages: ["/raporlar/personel"], writePages: [] },
+  // Muhasebe defteri dosyaları: ekran uçlarıyla (`/api/muhasebe`) aynı kapı.
+  { prefix: "/api/export/muhasebe-", pages: MUHASEBE_PAGES, writePages: [] },
   // MALİ TABLO DOSYALARI — uçlarıyla AYNI dar kapı.
   //
   // 2026-08-20'de `/api/raporlar/kar-zarar` ve `/bilanco` genel `/api/raporlar`

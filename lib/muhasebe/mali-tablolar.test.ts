@@ -156,3 +156,18 @@ describe("tablo notları", () => {
     expect(tabloNotlari({ bilanco: bilancoKur(kapanmis), bilancoMizani: kapanmis, donemMizani: kapanmis, hesapsiz: null, onayliFis: 5, taslakFis: 0 }).smmEksik).toBe(null)
   })
 })
+
+describe("kapanisAySonuUyarilari", () => {
+  it("yılın yazılmamış aylık maliyetini ve 397 bakiyesini söyler, başka yılınkini saymaz", async () => {
+    const { kapanisAySonuUyarilari } = await import("./kapanis")
+    const u = kapanisAySonuUyarilari({ yil: 2026, stokTakibi: true, smmBekleyen: ["2026-12", "2027-01", "2026-11"], fazla397: 2500 })
+    expect(u).toHaveLength(2)
+    expect(u[0]).toMatch(/^Kasım, Aralık için/)
+    expect(u[1]).toMatch(/397/)
+  })
+  it("stok takibi yoksa ya da her şey yazılmışsa sessiz", async () => {
+    const { kapanisAySonuUyarilari } = await import("./kapanis")
+    expect(kapanisAySonuUyarilari({ yil: 2026, stokTakibi: false, smmBekleyen: ["2026-12"], fazla397: 0 })).toEqual([])
+    expect(kapanisAySonuUyarilari({ yil: 2026, stokTakibi: true, smmBekleyen: [], fazla397: -5 })).toEqual([])
+  })
+})

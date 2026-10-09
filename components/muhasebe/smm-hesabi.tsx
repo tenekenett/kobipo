@@ -16,7 +16,8 @@ import type { SmmAyi, SmmOnizleme } from "@/lib/muhasebe/stok-maliyeti.server"
 /**
  * Satılan malın maliyeti sekmesi (Ay Sonu İşlemleri) — kural lib/muhasebe/stok-maliyeti.ts.
  * Her ay sonunda Kobipo'nun stok kayıtlarından stok değeri bulunur; defterdeki 153 ile
- * farkı o ayın maliyetidir (B 621 · A 153). KDV mahsubuyla aynı düzen: aylar sırayla,
+ * farkı o ayın maliyetidir (B 621 · A 153). Faturasız stok girişi maliyetten düşülmez,
+ * ayrı satırla 397'ye yazılır (B 153 · A 397). KDV mahsubuyla aynı düzen: aylar sırayla,
  * fiş onaylı yazılır, yalnız en son ay geri alınır.
  */
 
@@ -26,7 +27,7 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
   const { confirm } = useConfirm()
   const [veri, setVeri] = useState<Yanit | null>(null)
   const [ay, setAy] = useState<string | null>(null)
-  const [secim, setSecim] = useState<{ maliyet: string; stok: string }>({ maliyet: "", stok: "" })
+  const [secim, setSecim] = useState<{ maliyet: string; stok: string; fazla: string }>({ maliyet: "", stok: "", fazla: "" })
   const [hata, setHata] = useState<string | null>(null)
   const [mesgul, setMesgul] = useState(false)
 
@@ -36,6 +37,7 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
       if (ay) q.set("ay", ay)
       if (secim.maliyet) q.set("maliyet", secim.maliyet)
       if (secim.stok) q.set("stok", secim.stok)
+      if (secim.fazla) q.set("fazla", secim.fazla)
       setVeri(await muhasebeIstegi<Yanit>(`/api/muhasebe/stok-maliyeti?${q}`))
       setHata(null)
     } catch (e) {
@@ -55,7 +57,10 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
     if (!o || !seciliAy) return
     const ok = await confirm({
       title: `${ayAdi(seciliAy)} satılan malın maliyeti yazılsın mı?`,
-      description: `Maliyet: ${tl(o.plan.maliyet)}. Fiş onaylı olarak deftere yazılır; gerekirse geri alınabilir.`,
+      description:
+        `Maliyet: ${tl(o.plan.maliyet)}.` +
+        (o.plan.faturasizGiris > 0 ? ` Faturasız stok girişi: ${tl(o.plan.faturasizGiris)} (397'ye).` : "") +
+        " Fiş onaylı olarak deftere yazılır; gerekirse geri alınabilir.",
       confirmLabel: "Maliyeti yaz",
     })
     if (!ok) return
@@ -63,7 +68,7 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
     try {
       await muhasebeIstegi("/api/muhasebe/stok-maliyeti", {
         method: "POST",
-        body: JSON.stringify({ companyId, ay: seciliAy, islem: "yap", maliyet: o.secim.maliyet, stok: o.secim.stok }),
+        body: JSON.stringify({ companyId, ay: seciliAy, islem: "yap", maliyet: o.secim.maliyet, stok: o.secim.stok, fazla: o.secim.fazla }),
       })
       toast({ title: `${ayAdi(seciliAy)} maliyeti yazıldı` })
       setAy(null)
@@ -107,6 +112,11 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
         <p>
           Kobipo her ay sonunda stok kayıtlarınızdan elinizdeki malın değerini bulur (miktar × ortalama alış fiyatı). Defterdeki stok ile bu değer
           arasındaki fark o ay satılan (ya da fire, ikram olarak çıkan) malın maliyetidir. Yıl sonunda sayım yapılırsa yalnız sayım farkı kalır.
+        </p>
+        <p>
+          Fatura olmadan stoğa giren mal (ürün kartından açılış stoğu, elle stok düzeltmesi) maliyetten düşülmez — düşülseydi kâr olduğundan
+          yüksek görünürdü. Ayrı satırla <strong>397 Sayım ve Tesellüm Fazlaları</strong>&apos;na yazılır; muhasebeciniz yıl sonunda nereye
+          aktarılacağına karar verir.
         </p>
       </EkranAciklamasi>
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
@@ -206,10 +216,11 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
               )}
             </Uyari>
           )}
-          <dl className="grid gap-3 sm:grid-cols-3">
+          <dl className={cn("grid gap-3", o.plan.faturasizGiris > 0 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3")}>
             <Bilgi etiket="Defterdeki stok (153)" deger={tl(o.plan.stokHesabi)} />
-            <Bilgi etiket="Ay sonu stok değeri" deger={tl(o.plan.stokDegeri)} />
-            <Bilgi etiket="Satılan malın maliyeti" deger={tl(o.plan.maliyet)} vurgu />
+            {o.plan.faturasizGiris > 0 && <Bilgi etiket="+ Faturasız stok girişi" deger={tl(o.plan.faturasizGiris)} />}
+            <Bilgi etiket="− Ay sonu stok değeri" deger={tl(o.plan.stokDegeri)} />
+            <Bilgi etiket="= Satılan malın maliyeti" deger={tl(o.plan.maliyet)} vurgu />
           </dl>
           <p className="text-xs text-kobipo-gray">
             Stok değeri {o.stok.urunSayisi} ürünün ay sonu miktarı × ağırlıklı ortalama alış maliyetinden hesaplandı.
@@ -230,12 +241,32 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
               {o.stok.dovizli > 0 && <p>{o.stok.dovizli} ürün TL dışı para birimiyle tanımlı; stok değerine girmedi.</p>}
             </Uyari>
           )}
+          {o.faturasiz.deger > 0 && (
+            <Uyari ton="mavi">
+              <p>
+                Bu ay fatura olmadan stoğa <strong>{tl(o.faturasiz.deger)}</strong> değerinde mal girdi ({o.faturasiz.urunSayisi} ürün; ürün
+                kartından açılış stoğu ya da stok düzeltmesi). Satılan malın maliyetinden düşülmez, 397 Sayım ve Tesellüm Fazlaları&apos;na
+                yazılır. Geç girilmiş açılış stoğu mu, sayım fazlası mı — muhasebeciniz yıl sonunda karar verir.
+              </p>
+              <p className="mt-1">
+                En büyükleri:{" "}
+                {o.faturasiz.urunler
+                  .slice(0, 5)
+                  .map((u) => `${u.ad} (${u.miktar.toLocaleString("tr-TR")} adet, ${tl(u.deger)})`)
+                  .join(", ")}
+                {o.faturasiz.urunSayisi > 5 ? "…" : ""}
+              </p>
+              {o.faturasiz.maliyetsiz > 0 && (
+                <p className="mt-1">Alış fiyatı bilinmeyen {o.faturasiz.maliyetsiz} ürünün girişi 0 olarak sayıldı.</p>
+              )}
+            </Uyari>
+          )}
           {o.plan.uyarilar.map((u) => (
             <Uyari key={u} ton="sari">
               {u}
             </Uyari>
           ))}
-          {(o.secenekler.maliyet || o.secenekler.stok) && (
+          {(o.secenekler.maliyet || o.secenekler.stok || o.secenekler.fazla) && (
             <div className="grid gap-3 sm:grid-cols-2">
               {o.secenekler.maliyet && (
                 <AltHesap
@@ -251,6 +282,14 @@ export function SmmHesabi({ companyId, onDegisti }: { companyId: string; onDegis
                   secenekler={o.secenekler.stok}
                   deger={o.secim.stok}
                   onSec={(kod) => setSecim((s) => ({ ...s, stok: kod }))}
+                />
+              )}
+              {o.secenekler.fazla && (
+                <AltHesap
+                  etiket="Faturasız giriş hangi alt hesaba (397)?"
+                  secenekler={o.secenekler.fazla}
+                  deger={o.secim.fazla}
+                  onSec={(kod) => setSecim((s) => ({ ...s, fazla: kod }))}
                 />
               )}
             </div>

@@ -17,6 +17,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { ExportButton } from "@/components/export/export-button"
 import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 import type { Bilanco, GelirTablosuKalemi, TabloBolumu, TabloNotlari } from "@/lib/muhasebe/mali-tablolar"
 
@@ -106,6 +107,7 @@ export default function MaliTablolarPage() {
           <input type="checkbox" checked={taslak} onChange={(e) => taslakAyarla(e.target.checked)} />
           Taslaklarla ön izle
         </label>
+        <ExportButton dataset="muhasebe-mali-tablolar" companyId={companyId} params={{ bas, bit, taslak: taslak ? "1" : null }} disabled={!veri} />
       </div>
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       {yukleniyor && !veri && (

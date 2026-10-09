@@ -19,6 +19,9 @@ type Ctx = DefterBaglami & { ayar: MuhasebeAyari }
 
 export type OzetRakamlari = {
   netSatis: number
+  /** Satış dışı gelirler (64x olağan, 67x olağandışı) — kâra girer, satış değildir. */
+  digerGelirler: number
+  /** Satılan malın maliyeti dahil bütün gider grupları (62, 63, 65, 66, 68, 69). */
   giderler: number
   sonuc: number
   hazirDegerler: number
@@ -38,9 +41,13 @@ function rakamlar(b: Bilanco, g: ReturnType<typeof gelirTablosuKur>): OzetRakaml
   const kalem = (kod: string) => g.kalemler.find((k) => k.kod === kod)?.tutar ?? 0
   const grup = (kod: string) => [...b.aktif, ...b.pasif].flatMap((bol) => bol.gruplar).find((x) => x.kod === kod)?.tutar ?? 0
   const netSatis = kalem("C")
+  // Gider "net satış − net kâr" diye TÜRETİLMEZ: satış dışı gelir (ör. 649) varken gider
+  // eksiye düşüyordu (2026-10-09, Reypo: 2 milyon TL'lik diğer gelir → gider −1,88 milyon).
+  const digerGelirler = r2(kalem("F") + kalem("I"))
   return {
     netSatis,
-    giderler: r2(netSatis - g.netKar),
+    digerGelirler,
+    giderler: r2(netSatis + digerGelirler - g.netKar),
     sonuc: g.netKar,
     hazirDegerler: grup("10"),
     alacaklar: grup("12"),

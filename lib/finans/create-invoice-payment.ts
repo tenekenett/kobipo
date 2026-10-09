@@ -225,11 +225,21 @@ export async function createInvoicePayment(
     const chosen = accountId
       ? await prisma.financialAccount.findFirst({
           where: { id: accountId, companyId },
-          select: { id: true, name: true },
+          select: { id: true, name: true, currency: true },
         })
       : null
     if (accountId && !chosen) {
       return NextResponse.json({ error: "Hesap bulunamadı" }, { status: 404 })
+    }
+    // Fatura ödemesi yalnız TL hesaba yazılır — faturanın para birimi ne olursa olsun: cari
+    // bakiyesi TL tutulur, hareket TL tutarla yazılır. 2026-10-09'a kadar kontrol yalnız
+    // dövizli faturadaydı; TL fatura USD hesaptan ödenince TL tutar o hesabın bakiyesine
+    // dolar diye ekleniyordu. Dövizli hesaptaki para önce virmanla TL hesaba aktarılır.
+    if (chosen && (chosen.currency || "TRY").toUpperCase() !== "TRY") {
+      return NextResponse.json(
+        { error: `Fatura ödemesi TL kasa/banka hesabına yazılır; ${chosen.name} ${chosen.currency} hesabı. Dövizi önce virmanla TL hesaba aktarın.` },
+        { status: 400 },
+      )
     }
     // Hesap SEÇİLMEDİYSE varsayılan Kasa. Eskiden bu yol yalnız InvoicePayment
     // yazıyordu: fatura "ödendi", cari borç düştü, para hiçbir kasaya girmedi
@@ -255,13 +265,6 @@ export async function createInvoicePayment(
     const dovizli = (invoice.currency || "TRY").toUpperCase() !== "TRY"
     let kasaTutari = paidAmount
     if (dovizli) {
-      const hesap = await prisma.financialAccount.findUnique({ where: { id: account.id }, select: { currency: true } })
-      if ((hesap?.currency || "TRY").toUpperCase() !== "TRY") {
-        return NextResponse.json(
-          { error: "Dövizli faturanın ödemesi TL kasa/banka hesabına yazılır (cari bakiyeleri TL tutulur)." },
-          { status: 400 },
-        )
-      }
       const istenenKur = Number(String(body.exchangeRate ?? "").replace(",", "."))
       const kur = istenenKur > 0 ? istenenKur : faturaKuru(invoice)
       if (!(istenenKur > 0) && !(Number(invoice.exchangeRate) > 0)) {

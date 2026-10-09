@@ -570,6 +570,11 @@ Transaction, çek/senet, açılış bakiyesi ve **cari virman fişi** (`lib/cari
   TL tutarıyla (ödeme kasaya tutar × ödeme kuru yazılır — eskiden döviz tutarı TL gibi
   yazılıyordu). Kur farkı carinin bakiyesinde görünür kalır. Altı yerin hepsi bu kuraldan
   geçer; yeni bir fatura toplamı okuyan yer de `faturaKuru`/`faturaKuruSql` kullanır.
+  **Fatura ödemesi yalnız TL hesaba yazılır** — faturanın para birimi ne olursa olsun
+  (`createInvoicePayment` dövizli hesabı reddeder; 2026-10-09'a kadar kontrol yalnız dövizli
+  faturadaydı, TL fatura USD hesaptan ödenince TL tutar o hesaba dolar diye ekleniyordu).
+  Varsayılan kasa (`ensureDefaultCashAccount`) ve satış ekranlarının varsayılan kanalları
+  (`defaultPaymentAccounts`) döviz hesabını seçmez.
 
 - Virman kasaya dokunmaz; kâr/zarar, nakit akışı ve gelir-gidere BİLEREK girmez.
   Karşı cari isteğe bağlıdır (tek taraflı fiş = karşılıksız dekont). Düzenleme yok;
@@ -662,9 +667,21 @@ onaylar. Plan ve durum: `docs/muhasebe/MOTOR-PLAN.md`; kod `lib/muhasebe/`.
   (`fisGeriAl` reddeder) — yalnız kendi ekranından ve yalnız en son ay/yıl. Senkron onlara dokunmaz.
   KDV mahsubu aylar SIRAYLA, ayın KDV'li taslağı kalmadan yapılır (`kdv-mahsup.ts`).
 - **Ay sonu işlemleri** (`/muhasebe/ay-sonu`): satılan malın maliyeti (`stok-maliyeti.ts`: ay sonu
-  stok değeri = miktar × tarih sınırlı AVCO `resolveUnitCostsAsOf`; 153 ile farkı B 621 · A 153) ve
-  KDV mahsubu. İkisi de defterden türeyen aylık fiştir (yukarıdaki madde). Başlangıçtaki stok
-  açılış fişine 153 olarak girer; açılış girmezse ilk ayın maliyeti eksi çıkar.
+  stok değeri = miktar × tarih sınırlı AVCO `resolveUnitCostsAsOf`; maliyet = 153 + faturasız giriş −
+  stok değeri, B 621 · A 153) ve KDV mahsubu. İkisi de defterden türeyen aylık fiştir (yukarıdaki
+  madde). Başlangıçtaki stok açılış fişine 153 olarak girer; açılış girmezse ilk ayın maliyeti eksi çıkar.
+- **Faturasız stok girişi maliyetten DÜŞÜLMEZ** (2026-10-09, kullanıcı kararı): referanssız `IN`/
+  `ADJUSTMENT` (ürün kartından "Açılış stoğu", elle düzeltme) ayrı satırla B 153 · A 397; ürün başına
+  NET, yalnız artısı (`faturasizGirisler` — düzeltme yanlış yazılıp geri alınıyor, yalnız artılar
+  toplanınca Reypo Temmuz'u 449 milyar çıkıyordu). Düşülseydi kâr şişerdi: HİDROEREN stoğunu böyle
+  kurmuş (Eylül'de 333 ürün, ~748 bin TL). Faturasız ÇIKIŞ (fire, sayım eksiği) maliyette kalır.
+- **Ay sonu stok değeri BELGE tarihiyle** (`lib/stock/cost.ts` → `hareketBelgeTarihi`: fatura / irsaliye
+  günü, referanssızda kayıt anı): defter 153'ü fatura tarihine yazar; kayıt anıyla ölçülünce geç girilen
+  fatura maliyeti başka aya kaydırıyordu (EREN FORKLİFT: alış stok hareketlerinin %47'si, 49 güne kadar).
+  Tarih sınırlı AVCO (`resolveUnitCostsAsOf`) yalnız muhasebede kullanılır; diğer raporlar etkilenmez.
+- **Dışa aktarım:** Mizan, Yevmiye, Kebir, Bilanço/Gelir Tablosu ekranlarında Excel/PDF/CSV
+  (`lib/export/datasets/muhasebe.ts`, `muhasebe-*`); ekran uçlarıyla AYNI sorgular (mali tablolar
+  `maliTabloMizanlari`). Kapı: modül `/api/export/muhasebe-` + sayfa kuralı.
 - **Gece mutabakatı** (`gece-mutabakati.server.ts`, GitHub Actions günde bir): bildirmeyen seyrek
   yazma yollarının fişi sabaha hazırdır.
 - **Demirbaş** (`FixedAsset`, `/muhasebe/demirbaslar`) her yıl için 31 Aralık tarihli amortisman

@@ -20,8 +20,9 @@ export const DEFAULT_CASH_ACCOUNT = { code: "KASA", name: "Kasa", type: "CASH" }
  * Bunun yerine hesapsız ödeme varsayılan Kasa'ya yazılır; para her zaman bir
  * yerde durur, yanlış yerdeyse hareket sonradan taşınır.
  *
- * Seçim sırası: en eski aktif CASH hesabı → yoksa "Kasa" açılır. BANK hesabına
- * düşülmez: nakit satışı bankaya yazmak, kasayı boş gösterip bankayı şişirir.
+ * Seçim sırası: en eski aktif TL CASH hesabı → yoksa "Kasa" açılır. BANK hesabına
+ * düşülmez: nakit satışı bankaya yazmak, kasayı boş gösterip bankayı şişirir. Döviz
+ * kasasına düşülmez: tahsilat TL'dir (cari TL tutulur), çekirdek dövizli hesabı reddeder.
  * Aynı depo yaklaşımı: lib/stock/warehouse.ts → ensureDefaultWarehouseId.
  */
 export async function ensureDefaultCashAccount(
@@ -29,7 +30,7 @@ export async function ensureDefaultCashAccount(
   companyId: string,
 ): Promise<{ id: string; name: string; created: boolean }> {
   const existing = await db.financialAccount.findFirst({
-    where: { companyId, isActive: true, type: DEFAULT_CASH_ACCOUNT.type },
+    where: { companyId, isActive: true, type: DEFAULT_CASH_ACCOUNT.type, currency: "TRY" },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true },
   })
@@ -52,7 +53,7 @@ export async function ensureDefaultCashAccount(
     // düşürür — kazananı oku, ikinci bir "Kasa" açma.
     if ((error as { code?: string })?.code === "P2002") {
       const winner = await db.financialAccount.findFirst({
-        where: { companyId, isActive: true, type: DEFAULT_CASH_ACCOUNT.type },
+        where: { companyId, isActive: true, type: DEFAULT_CASH_ACCOUNT.type, currency: "TRY" },
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true },
       })

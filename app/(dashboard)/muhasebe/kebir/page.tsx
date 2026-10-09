@@ -18,6 +18,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { ExportButton } from "@/components/export/export-button"
 import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
@@ -100,6 +101,7 @@ export default function KebirPage() {
           <SearchSelect options={secenekler} value={hesap} onChange={hesapSec} placeholder="Hesap seçin (kod ya da ad)" emptyText="Eşleşen hesap yok" />
         </div>
         <DonemSecici />
+        {hesap && <ExportButton dataset="muhasebe-kebir" companyId={companyId} params={{ hesap, bas, bit }} disabled={!veri} />}
       </div>
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       {!hesap ? (

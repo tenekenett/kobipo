@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic"
 /**
  * Aylık satılan malın maliyeti (kural: lib/muhasebe/stok-maliyeti.ts).
  *
- * GET  ?companyId[&ay=YYYY-AA][&maliyet=kod][&stok=kod] → aylar + seçilen (yoksa sıradaki) ayın ön izlemesi
- * POST { companyId, ay, islem: "yap", maliyet?, stok? }  → maliyet fişi (onaylı)
+ * GET  ?companyId[&ay=YYYY-AA][&maliyet=kod][&stok=kod][&fazla=kod] → aylar + seçilen (yoksa sıradaki) ayın ön izlemesi
+ * POST { companyId, ay, islem: "yap", maliyet?, stok?, fazla? }      → maliyet fişi (onaylı)
  *      { companyId, ay, islem: "geri-al" }                → en son ayın fişini sil
  */
 export const GET = muhasebeUcu(async (request: Request) => {
@@ -20,7 +20,7 @@ export const GET = muhasebeUcu(async (request: Request) => {
   const ay = sp.get("ay") || aylar.find((a) => a.durum === "bekliyor")?.ay || null
   const onizleme =
     ay && stokTakibi && aylar.some((a) => a.ay === ay && a.durum !== "yapildi")
-      ? await smmOnizleme(defter, ay, { maliyet: sp.get("maliyet"), stok: sp.get("stok") })
+      ? await smmOnizleme(defter, ay, { maliyet: sp.get("maliyet"), stok: sp.get("stok"), fazla: sp.get("fazla") })
       : null
   return NextResponse.json({ stokTakibi, aylar, ay, onizleme })
 })
@@ -39,7 +39,11 @@ export const POST = muhasebeUcu(async (request: Request) => {
   const sonuc = await smmYap(
     defter,
     ay,
-    { maliyet: typeof body.maliyet === "string" ? body.maliyet : null, stok: typeof body.stok === "string" ? body.stok : null },
+    {
+      maliyet: typeof body.maliyet === "string" ? body.maliyet : null,
+      stok: typeof body.stok === "string" ? body.stok : null,
+      fazla: typeof body.fazla === "string" ? body.fazla : null,
+    },
     kullaniciId,
   )
   return NextResponse.json({ ok: true, ...sonuc })

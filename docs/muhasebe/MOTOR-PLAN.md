@@ -56,7 +56,115 @@ toplamından 1–3 kuruş sapıyordu; (3) bir kasa hareketi başka firmanın kas
 (veri tutarsızlığı, tek kayıt: Demo Firma'nın 720 TL'lik tahsilatı Reypo Medya'nın "ana"
 kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e düşürür.
 
-### ▶ DEVAM — 2026-10-09 eksik turu (EN GÜNCEL — main'e gönderildi, kalanlar başka bilgisayarda)
+### ▶ DEVAM — 2026-10-09 gece geliştirme turu (EN GÜNCEL)
+
+Kullanıcı: "bakılmayanları tekrar kontrol edelim, geliştirilecek başka bir şey varsa geliştirelim".
+
+**Bakılmayanlar bakıldı:** finans "Yeni İşlem" formu (masaüstü + 390 px; İşlem türü gelir/gider
+listeleri, dövizli hesapta kur alanı TCMB önerisiyle) ve dövizli faturanın ödeme penceresi (390 px,
+kur alanı + "kasaya X TL yazılır" notu). Taşan öğe yok. Ölçüm için geçici "TEST USD Ekran" hesabı +
+USD fatura açıldı ve silindi. (Önceki turda "tarayıcı donuyor" sanılan şey ekran görüntüsü aracıydı;
+sayfa yanıt veriyordu — tıklama sayfa içinden yapılınca çalıştı.)
+
+**Bulunan ve düzeltilen:**
+1. **Fatura ödemesi dövizli hesaba yazılabiliyordu** — dövizli hesap kontrolü yalnız DÖVİZLİ faturadaydı;
+   TL fatura USD hesaptan ödenince TL tutar o hesaba dolar diye ekleniyordu. Ayrıca "hesap seçilmezse
+   varsayılan Kasa" en eski CASH'i alıyordu (döviz kasası olabilir), satış ekranlarının varsayılan
+   kanalları da. Artık: `createInvoicePayment` her faturada TL hesap ister; `ensureDefaultCashAccount`
+   ve `defaultPaymentAccounts` döviz hesabını seçmez (testli); ödeme ekranı listede yalnız TL hesap
+   gösterir; tutar boşken "0,00 TL yazılır" notu çıkmaz. Canlıda zarar yok (dövizli hesap 0).
+2. **Ay sonu stok değeri kayıt anıyla ölçülüyordu** — defter 153'ü fatura tarihine yazarken stok
+   `createdAt` ile ölçülünce geç girilen alış maliyeti başka aya kaydırıyordu. EREN FORKLİFT (gerçek):
+   Nisan'dan beri alış stok hareketlerinin %47'si (1,82 M TL) fatura tarihinden başka aya düşüyor,
+   49 güne kadar gecikme. Artık `lib/stock/cost.ts` → `hareketBelgeTarihi`/`hareketBelgeJoin`: faturaya
+   bağlı hareket fatura günü, irsaliyeye bağlı (`waybill:<id>`) irsaliye günü, referanssız kayıt anı.
+   `stokDegeri` ve tarih sınırlı AVCO (`resolveUnitCostsAsOf` — yalnız muhasebe kullanıyor) bu tarihle
+   sorar. İptalin ters hareketi aynı referansla aynı güne düşer (iptal edilen fatura hiçbir ayda stok
+   bırakmaz). Reypo Temmuz maliyeti 114.980 → 239.274 TL.
+
+**Geliştirilen:**
+3. **Muhasebe dışa aktarımları** — Mizan (düzey + taslak süzgeciyle), Yevmiye, Kebir, Bilanço + Gelir
+   Tablosu ekranlarında Excel/PDF/CSV (`lib/export/datasets/muhasebe.ts`; `muhasebe-mizan`,
+   `-yevmiye`, `-kebir`, `-mali-tablolar`). Ekran uçlarıyla aynı sorgular; mali tablolar için iki
+   mizan `maliTabloMizanlari`ye çıkarıldı (uç da onu kullanıyor). Kapı: modül kuralı zaten vardı,
+   sayfa kuralı eklendi (`MUHASEBE_PAGES`); dışa aktarım ucu artık veri kümesinin 4xx'ini (kurulum
+   yok, hesap yok, bozuk tarih) 500 yerine kendi koduyla döner. Taslak dahil dosya filtre satırında
+   "ÖN İZLEME — resmî değil" yazar. Müşavirin ilk istediği dosyalar bunlar; Luca/Zirve aktarımı ayrı iş.
+4. **Kapanış ön izlemesi uyarıları** (`kapanis.ts` → `kapanisAySonuUyarilari`, testli): yılın aylık
+   maliyeti yazılmamış/güncel olmayan ayları (kapanış sayımla 153'ü kapatıp o ayların faturasız
+   girişini de maliyete katardı) ve 397'de bekleyen faturasız giriş bakiyesi (kapanış aktarmaz,
+   müşavir kararı). Engel değil, uyarı.
+
+**Doğrulama:** `tsc` temiz, `npx vitest run lib` 2031 test; uçtan uca 133/133 (yeni: 0'da kapalı modülde
+dışa aktarım 403, 7e dışa aktarım — CSV toplamları ekranla kuruşu kuruşuna, kebirde hesapsız 400,
+Excel/PDF iner; 10'da kapanış uyarısı). Masaüstünde mizan "Dışa Aktar" düğmesi görüldü.
+Canlı `cari/bakiye-tutarlilik` bu turun değişikliklerinden sonra geçti. **Canlı `muhasebe/defter-tutarlilik`
+bu turun sonunda SONUÇLANMADI:** iki koşu 10 dk süre sınırına takıldı (doğrulama hatası değil —
+veritabanı turu ~750 ms'ye çıkmıştı, test defter başına ~20 ardışık sorgu atıyor; bu turun kodu o
+testin yoluna dokunmuyor: stok değeri/ödeme/dışa aktarım onun kaynaklarında yok). Sınır 20 dk'ya
+çıkarıldı (`defter-tutarlilik.canli.test.ts`); üçüncü koşu sürerken oturum kapandı.
+
+**▶ YENİ BİLGİSAYARDA İLK ADIMLAR (bu tur için)**
+1. `git pull` → `npx prisma generate` (şema değişmedi ama önceki turdan AccountingEntry kalkmıştı).
+2. `npx tsc --noEmit` ve `npx vitest run lib` (2031 test bekleniyor).
+3. Canlı, salt okur: `npm run test:canli -- lib/muhasebe/defter-tutarlilik` (en fazla 20 dk; sonucu
+   bu turda alınamadı). İsterseniz uçtan uca: `npm run dev` + `TEST_BASE_URL=http://localhost:3000
+   node scripts/test-muhasebe.mjs` (Reypo; 133 kontrol; 12–20 dk).
+4. Gözle (isteğe bağlı): Ay Sonu → satılan malın maliyeti ekranında "Faturasız stok girişi" kutusu ve
+   ürün listesi (Reypo Temmuz'da görünür; ekranı görmek için betiği `MUHASEBE_BIRAK=1` ile koşup sonra
+   `MUHASEBE_SIFIRLA=1` ile temizleyin), Yevmiye/Kebir/Bilanço ekranlarındaki "Dışa Aktar".
+
+**▶ SIRADAKİ:** deploy → hemen ardından `20261009000002` (eski `accounting_entries`) → kullanıcı planı:
+başka bir firmanın projesiyle kıyas → müşavire çıkış (C: Luca/Zirve ya da e-Defter; Luca/Zirve için
+müşavirden örnek dosya gerekir). Açık kalan küçük konular yukarıdaki "Bilinen sınırlar"da.
+
+**Bilinen sınırlar (yeni):** bordrodan düşülen avans kayıtlı avanstan fazlaysa 196 ters bakiye verir
+(Reypo test verisinde −21.121; canlıda bordro avans kesintisi yalnız iki Reypo firmasında). İrsaliyeye
+bağlı stok (canlıda 5 hareket) irsaliye günüyle, faturası 153'e fatura günüyle girer — ikisi farklı
+aydaysa maliyet o iki ay arasında kayar.
+
+### ▶ DEVAM — 2026-10-09 akşam doğrulama turu
+
+Aşağıdaki "eksik turu"nun YENİ BİLGİSAYARDA İLK ADIMLAR ve YAPILACAKLAR 1–3 maddeleri yapıldı.
+
+**Doğrulama:** `prisma generate` (AccountingEntry kalktı), `tsc` temiz, `npx vitest run lib` 2028 test;
+canlı `defter-tutarlilik` ve `cari/bakiye-tutarlilik` geçti; uçtan uca `scripts/test-muhasebe.mjs`
+**125/125** (önce 107/107; eklenenler: 7b özet denklemi, 7d faturasız giriş, 8f dövizli fatura ödemesi —
+kasaya TL, kur farkı caride, silince kasa geri döner; 8g gece mutabakatı — anahtarsız 401, bildirmeyen
+hareketin fişini açar/kaldırır). Ekranlar masaüstü + 390 px (iframe yöntemi) temiz: özet, ay sonu iki
+sekme, demirbaşlar + ekleme penceresi, mali tablolar `?taslak=1`, personel kartı → Avanslar + pencere.
+**Bakılmadı:** finans "Yeni İşlem" formu (tarayıcı ekran görüntüsünde takıldı; uç 8c'de sınandı),
+dövizli hesapta kur alanının mobil görünümü.
+
+**Bulunan ve düzeltilenler:**
+1. **Faturasız stok girişi maliyetten düşülüyordu → hayali kâr** (kullanıcı kararı: ayrı satır). Reypo
+   Temmuz maliyeti −2,5 milyon çıkıyordu: keçeye 181 adetlik fiyatsız elle düzeltme. Gerçek müşteri
+   HİDROEREN stoğunu 505 elle hareketle kurmuş (Eylül: 333 ürün, ~748 bin TL faturasız giriş). Artık
+   `faturasizGirisler` (stok-maliyeti.server.ts) ayın referanssız `IN`/`ADJUSTMENT` hareketlerini ürün
+   başına NET alıp artısını ay sonu AVCO ile değerler; fişte B 153 · A 397 (rol `SMM_FAZLA`, öğrenme
+   anahtarı `smm:fazla`), maliyet = 153 + faturasız giriş − stok değeri. Net almak şart: düzeltmeler
+   yanlış yazılıp geri alınıyor (+123.456.786 / −123.456.787) — yalnız artılar toplanınca Reypo
+   Temmuz'u 449 milyar çıktı. Alt sınır `max(ay başı, defter başlangıcı)` (açılış stoğuyla çift
+   sayılmasın). Ekran girişi ürünleriyle anlatır. Reypo Temmuz maliyeti artık +114.980 TL.
+2. **Özet "Giderler" eksiye düşüyordu:** `net satış − net kâr` diye türetiliyordu; satış dışı gelir
+   (649) varken gider −1,88 milyon göründü. Artık `digerGelirler` (F + I) ayrı; kâr kutusu söyler.
+3. Ufak: `lib/cari/invoice-direction.ts`'te import bir fonksiyonun açıklamasıyla arasına girmişti.
+
+**Canlı veri (kullanıcı onayıyla, uygulamanın uçlarıyla):** D3 — Demo Firma'nın 720 TL tahsilatı
+(hareket + ödeme) Demo Firma Kasa'sına taşındı (Reypo "ana" −720, Demo Kasa +720). Reypo test
+artıkları silindi: 9 anlamsız çek (12,3 milyar "asdas" dahil; tahsilleri geri sarıldı) ve açıklamasız
+2.000.000 TL gelir. Kalan tek çek gerçekçi (İş Bankası 0004567891, 12.500 TL). Reypo muhasebe kapalı,
+fiş yok.
+
+**Bilinen sınır (yeni):** yıl sonu kapanışı sayım tutarıyla çalışır (aralıklı envanter); Aralık'ın
+aylık maliyeti yazılmadan kapanış yapılırsa Aralık'ın faturasız girişi maliyete karışır — önce Ay
+Sonu'nda Aralık yazılmalı (kapanış bunu zorunlu tutmuyor). 397 geçici hesaptır; yıl sonunda nereye
+aktarılacağı müşavirin kararı (geç girilmiş açılış stoğu → sermaye/geçmiş yıl; sayım fazlası → 679).
+
+**Sıradaki:** deploy → hemen ardından `20261009000002` (eski `accounting_entries`); sonra kullanıcı
+planı: başka bir firmanın projesiyle kıyas → müşavire çıkış (C).
+
+### ▶ DEVAM — 2026-10-09 eksik turu (main'e gönderildi; ilk adımlar ve 1–3 yukarıda yapıldı)
 
 Kullanıcı (muhasebeci değil) ekranları "karışık", cetvelleri "sağlıklı çalışmıyor" buldu. Ölçüm
 (Reypo): 353 fişin hiçbiri onaylı değildi → mali tablolar sıfır; taslak dahil mizanda 56 hesapsız
@@ -80,7 +188,7 @@ sırayla → başka bir firmanın projesiyle kıyas → EN SON müşavire çık�
 | B7 | Carisiz çek hesapsız | **yazıldı** formda uyarı (zorunlu yapılmadı: okutma/hızlı giriş cari bilmeden evrak açıyor); fişte karşı hesap seçilir |
 | D1 | Gece mutabakatı | **yazıldı** — `lib/muhasebe/gece-mutabakati.server.ts`, uç `/api/muhasebe/cron/mutabakat`, `.github/workflows/muhasebe-mutabakat.yml` (günde bir, 00:23 UTC, `CRON_SECRET`) |
 | D2 | Eski `accounting_entries` (3 test kaydı) | **kaldırıldı** — model ve fatura silmedeki silme kodu gitti; migrasyon `20261009000002_eski_muhasebe_kayitlari.sql` **DEPLOY'DAN SONRA** uygulanır (canlıdaki eski kod fatura silerken tabloya yazıyor) |
-| D3 | Demo Firma'nın 720 TL tahsilatı Reypo'nun "ana" banka hesabında (tek kayıt) | kullanıcı onayı bekliyor: hareket + ödeme Demo Firma'nın Kasa'sına taşınır, iki bakiye ±720 |
+| D3 | Demo Firma'nın 720 TL tahsilatı Reypo'nun "ana" banka hesabında (tek kayıt) | **yapıldı (2026-10-09 akşam, kullanıcı onayıyla)**: hareket + ödeme Demo Firma'nın Kasa'sına taşındı, iki bakiye ±720 |
 
 **Migrasyonlar:**
 - `20261009000001_hareket_turu_demirbas.sql` — **CANLIDA** (kullanıcı uyguladı, 2026-10-09; kolonlar

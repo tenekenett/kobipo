@@ -33,6 +33,7 @@ import { buildDevamDataset } from "./personel-devam"
 import { buildPuantajDataset } from "./personel-puantaj"
 import { buildVardiyaPlanDataset } from "./personel-vardiya"
 import { buildTaxReportDataset } from "./reports-vergi"
+import { buildKebirDataset, buildMaliTablolarDataset, buildMizanDataset, buildYevmiyeDataset } from "./muhasebe"
 import { todayIso, weekStartIso } from "@/lib/personel/vardiya"
 
 /** `year`/`month` gibi sayısal paramlar için ortak çözücü. */
@@ -183,6 +184,12 @@ export const DATASETS: Record<string, DatasetBuilder> = {
       startDate: params.get("startDate"),
       endDate: params.get("endDate"),
     }),
+
+  // Muhasebe defteri (lib/export/datasets/muhasebe.ts) — filtreler ekran uçlarıyla aynı adlarda.
+  "muhasebe-mizan": (companyId, params) => buildMizanDataset(companyId, params),
+  "muhasebe-yevmiye": (companyId, params) => buildYevmiyeDataset(companyId, params),
+  "muhasebe-kebir": (companyId, params) => buildKebirDataset(companyId, params),
+  "muhasebe-mali-tablolar": (companyId, params) => buildMaliTablolarDataset(companyId, params),
 
   "rapor-bilanco": (companyId, params) =>
     buildBalanceSheetDataset({ companyId, asOfDate: params.get("asOfDate") }),

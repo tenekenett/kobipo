@@ -18,6 +18,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { ExportButton } from "@/components/export/export-button"
 import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
@@ -82,7 +83,10 @@ export default function YevmiyePage() {
         </p>
         <p>Vergi mevzuatında tutulması zorunlu defterlerden biridir; muhasebeciniz bu listeye bakarak kayıtları kontrol eder.</p>
       </EkranAciklamasi>
-      <DonemSecici />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <DonemSecici />
+        <ExportButton dataset="muhasebe-yevmiye" companyId={companyId} params={{ bas, bit }} disabled={!veri || veri.toplam === 0} />
+      </div>
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       {veri && (
         <div className="flex flex-wrap gap-4 rounded-2xl bg-kobipo-offwhite px-4 py-3 text-sm tabular-nums text-kobipo-navy dark:bg-muted/40 dark:text-foreground">
