@@ -56,7 +56,21 @@ toplamından 1–3 kuruş sapıyordu; (3) bir kasa hareketi başka firmanın kas
 (veri tutarsızlığı, tek kayıt: Demo Firma'nın 720 TL'lik tahsilatı Reypo Medya'nın "ana"
 kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e düşürür.
 
-### ▶ DEVAM — 2026-10-09 gece geliştirme turu (EN GÜNCEL)
+### ▶ DEVAM — 2026-10-09 gece kıyas turu (EN GÜNCEL)
+
+Kullanıcı planındaki "başka bir firmanın projesiyle kıyas" adımı başladı. **İlk site Paraşüt** —
+notlar `docs/muhasebe/PARASUT-KIYAS.md`. Sonuç: Paraşüt ön muhasebedir, muhasebe (defter/mizan/
+bilanço) tarafı YOK; müşavir davetli kullanıcıdır ve aktarımı dış araçla yapar. Kullanıcının
+araştırma amacı muhasebe modülüydü, Paraşüt'te karşılığı olmadığı için **başka bir siteye
+geçildi**. Paraşüt'ten çıkan Kobipo önerileri (nakit projeksiyonuna vergi/maaş, kur farkını
+söyleme, fatura satırında kâr…) notta sıralı; henüz yapılmadı, kullanıcı seçmedi.
+
+Durum doğrulaması (bu turun başı): `tsc` temiz, `npx vitest run lib` 2031 test; canlıda 7186c11
+yayında (`/api/muhasebe/cron/mutabakat` 401). **`20261009000002` (eski `accounting_entries`)
+CANLIDA UYGULANMIŞ** — tablo yok (`to_regclass` null); aşağıdaki "deploy → `20261009000002`"
+adımları kapandı. Canlıda hiçbir firmada muhasebe kurulumu/fişi yok.
+
+### ▶ DEVAM — 2026-10-09 gece geliştirme turu
 
 Kullanıcı: "bakılmayanları tekrar kontrol edelim, geliştirilecek başka bir şey varsa geliştirelim".
 
