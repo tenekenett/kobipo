@@ -183,6 +183,9 @@ export const KAYNAK_TURU: Record<string, string> = {
   ACCOUNT_OPENING: "Kasa açılış bakiyesi",
   OPENING: "Açılış",
   CLOSING: "Dönem kapanışı",
+  KDV_MAHSUP: "KDV mahsubu",
+  STOK_MALIYET: "Satılan malın maliyeti",
+  DEPRECIATION: "Amortisman",
   MANUAL: "Elle fiş",
 }
 

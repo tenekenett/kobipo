@@ -81,6 +81,8 @@ async function computeDeletability(
           type: true,
           returnKind: true,
           totalAmount: true,
+          currency: true,
+          exchangeRate: true,
           payments: { select: { amount: true, transactionId: true } },
         },
       }),

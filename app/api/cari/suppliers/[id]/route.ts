@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { faturaKuru } from "@/lib/cari/doviz"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -106,6 +107,8 @@ export const GET = withApiErrors(async function GET(
         invoiceNo: true,
         eDocumentNo: true,
         totalAmount: true,
+        currency: true,
+        exchangeRate: true,
         // Yalnız kasa hareketine BAĞLANMAMIŞ ödemeler: bağlı olan bakiyeye ve
         // ekstreye işlemin kendisi üzerinden girer (aşağıda iki yerde de).
         payments: {
@@ -191,7 +194,8 @@ export const GET = withApiErrors(async function GET(
         (sum, p) => sum + (p.transactionId ? 0 : Number(p.amount)),
         0,
       )
-      const net = Number(inv.totalAmount) - totalPaid
+      // Dövizli fatura ve kasasız ödemesi fatura kuruyla TL (lib/cari/doviz.ts).
+      const net = (Number(inv.totalAmount) - totalPaid) * faturaKuru(inv)
       // Tedarikçide pozitif bakiye = ona borçluyuz. Alış ailesi borcu artırır,
       // satış ailesi (onun bize borcu) azaltır.
       balance += payable !== 0 ? payable * net : -receivable * net

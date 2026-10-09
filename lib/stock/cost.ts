@@ -14,7 +14,7 @@
 //    ortalaması; hiç hareket yoksa elle girilen alış fiyatı; o da yoksa BİLİNMİYOR."
 //
 // "Geri alınmamış" kısmı sonradan eklendi: iptal/silinen alışın fiyatı ortalamada
-// kalıyordu (bkz. AVG_COST_SELECT yorumu ve docs/restoran/SADELESTIRME.md "İş 11").
+// kalıyordu (bkz. avgCostSelect yorumu ve docs/restoran/SADELESTIRME.md "İş 11").
 //
 // "ALIŞ hareketi"nin sınırı da sonradan daraldı — fiyatlı her `IN` alış DEĞİLDİR:
 //   • SATIŞ İADESİ stoğa `IN` olarak, müşteriden aldığımız SATIŞ fiyatıyla girer
@@ -72,7 +72,7 @@ import { prisma } from "@/lib/db/prisma"
  * Hiç fiyatlı alış kalmazsa bölme null olur ve `purchasePrice` devreye girer;
  * o da yoksa sonuç null kalır.
  */
-const AVG_COST_SELECT = Prisma.sql`
+const avgCostSelect = (once?: Date) => Prisma.sql`
   SELECT p.id AS product_id,
          COALESCE(
            SUM(
@@ -113,10 +113,38 @@ const AVG_COST_SELECT = Prisma.sql`
       WHERE m."productId" = p.id
         AND m."companyId" = p."companyId"
         AND m.quantity <> 0
+        ${once ? Prisma.sql`AND m."createdAt" < ${once}` : Prisma.empty}
     ) mm
     GROUP BY mm.doc_key
   ) d ON TRUE
 `
+
+/**
+ * Maliyet, `once` ANINDAN ÖNCEKİ hareketlerle (muhasebenin ay sonu stok değerlemesi —
+ * lib/muhasebe/stok-maliyeti.server.ts). Kural `avgCostSelect` ile aynı; yalnız sonradan
+ * yapılan alış o günün ortalamasına girmez.
+ */
+export async function resolveUnitCostsAsOf(
+  companyId: string,
+  productIds: string[],
+  once: Date,
+): Promise<Map<string, number | null>> {
+  const costs = new Map<string, number | null>()
+  const ids = Array.from(new Set(productIds.filter(Boolean)))
+  if (ids.length === 0) return costs
+  const rows = await prisma.$queryRaw<Array<{ product_id: string; unit_cost: unknown }>>`
+    ${avgCostSelect(once)}
+    WHERE p."companyId" = ${companyId}
+      AND p.id IN (${Prisma.join(ids)})
+    GROUP BY p.id, p."purchasePrice"
+  `
+  for (const row of rows) {
+    const value = row.unit_cost == null ? null : Number(row.unit_cost)
+    costs.set(row.product_id, value != null && Number.isFinite(value) ? value : null)
+  }
+  for (const id of ids) if (!costs.has(id)) costs.set(id, null)
+  return costs
+}
 
 /**
  * Rapor sorgularına eklenen CTE: `(product_id, unit_cost)`.
@@ -131,7 +159,7 @@ const AVG_COST_SELECT = Prisma.sql`
 export function avgCostCte(companyId: string): Prisma.Sql {
   return Prisma.sql`
     avg_cost AS (
-      ${AVG_COST_SELECT}
+      ${avgCostSelect()}
       WHERE p."companyId" = ${companyId}
       GROUP BY p.id, p."purchasePrice"
     )
@@ -155,7 +183,7 @@ export async function resolveUnitCosts(
   if (ids.length === 0) return costs
 
   const rows = await prisma.$queryRaw<Array<{ product_id: string; unit_cost: unknown }>>`
-    ${AVG_COST_SELECT}
+    ${avgCostSelect()}
     WHERE p."companyId" = ${companyId}
       AND p.id IN (${Prisma.join(ids)})
     GROUP BY p.id, p."purchasePrice"
@@ -185,7 +213,7 @@ export type LastPurchase = {
  * eski stok eridikçe yansıtır — arada kullanıcı iki sayının neden ayrıştığını
  * göremezse ortalamayı hatalı sanır.
  *
- * `AVG_COST_SELECT` ile aynı DIŞLAMALARI uygular (satış iadesi ve yabancı para
+ * `avgCostSelect` ile aynı DIŞLAMALARI uygular (satış iadesi ve yabancı para
  * belgesi alış sayılmaz) ama belge bazında NETLEŞTİRMEZ: burada sorulan "en son ne
  * ödedim", "elimdeki mal kaça mal oldu" değil. Geri alınmış bir alış son hareket
  * olarak görünebilir; ortalamadan düştüğü için hesabı bozmaz, yalnız bilgi satırı
@@ -243,7 +271,7 @@ export async function resolveAllUnitCosts(
   companyId: string,
 ): Promise<Map<string, number | null>> {
   const rows = await prisma.$queryRaw<Array<{ product_id: string; unit_cost: unknown }>>`
-    ${AVG_COST_SELECT}
+    ${avgCostSelect()}
     WHERE p."companyId" = ${companyId}
     GROUP BY p.id, p."purchasePrice"
   `

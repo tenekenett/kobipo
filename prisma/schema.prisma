@@ -406,11 +406,11 @@ model Company {
   promissoryNotes         PromissoryNote[]
   warehouses              Warehouse[]
   accountPlans            AccountPlan[]
-  accountingEntries       AccountingEntry[]
   journalVouchers         JournalVoucher[]
   journalVoucherLines     JournalVoucherLine[]
   accountMappingRules     AccountMappingRule[]
   accountingSettings      AccountingSettings?
+  fixedAssets             FixedAsset[]
   waybills                Waybill[]
   bankStatements          BankStatement[]
   cashCounts              CashCount[]
@@ -660,30 +660,30 @@ model CompanyInvitation {
 }
 
 model Customer {
-  id                   String    @id @default(cuid())
-  companyId            String
-  code                 String?
+  id                     String    @id @default(cuid())
+  companyId              String
+  code                   String?
   // `name` resmi ünvandır (faturada/e-belgede basılır). `nickname` günlük hayatta
   // kullanılan takma addır ("Ali Usta", "Köşedeki bakkal") — yalnızca ARAYÜZ içindir:
   // listede ünvanın altında görünür ve cari aramasında eşleşir. Belgelere yazılmaz.
-  name                 String
-  nickname             String?
-  taxNumber            String?
-  taxOffice            String?
-  address              String?   @db.Text
-  city                 String?
-  district             String?
-  country              String    @default("TR")
-  phone                String?
-  email                String?
-  contactPerson        String?
+  name                   String
+  nickname               String?
+  taxNumber              String?
+  taxOffice              String?
+  address                String?   @db.Text
+  city                   String?
+  district               String?
+  country                String    @default("TR")
+  phone                  String?
+  email                  String?
+  contactPerson          String?
   // Pinlenen GİB posta kutusu (alias). Birden çok PK'sı olan alıcıya e-Fatura
   // gönderirken tercih edilen kutu; boşsa Mysoft ilk geçerli PK'yı otomatik seçer.
-  eInvoiceAlias        String?
+  eInvoiceAlias          String?
   // KAMU KURUMU (lib/integrations/e-invoice/public-invoice.ts). Kamuya kesilen
   // e-Faturada ödemenin yatırılacağı IBAN zorunludur. Bayrak GİB kaydından
   // (gibUserType = 2) gönderimde kendiliğinden basılır, elle de açılabilir.
-  isPublicInstitution    Boolean @default(false)
+  isPublicInstitution    Boolean   @default(false)
   // Ödemenin yatırılacağı hesap; boşsa firmanın TEK uygun banka hesabı.
   publicPaymentAccountId String?
   // Ödemeyi yapacak HARCAMA BİRİMİ (belgede BuyerCustomerParty) — kurumdan öğrenilir.
@@ -692,39 +692,39 @@ model Customer {
   publicPayeeName        String?
   publicPayeeCity        String?
   publicPayeeDistrict    String?
-  paymentDueDays       Int?
-  openingBalanceAmount Decimal   @default(0) @db.Decimal(14, 2)
-  openingBalanceType   String    @default("DEBIT")
-  riskLimit            Decimal?  @db.Decimal(14, 2)
-  bankInfo             String?   @db.Text
-  note                 String?   @db.Text
-  classification1Id    String?
-  classification2Id    String?
-  authorizedUserId     String?
-  slug                 String    @default("")
-  isAlsoSupplier       Boolean   @default(false)
-  linkedSupplierId     String?
-  archivedAt           DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  paymentDueDays         Int?
+  openingBalanceAmount   Decimal   @default(0) @db.Decimal(14, 2)
+  openingBalanceType     String    @default("DEBIT")
+  riskLimit              Decimal?  @db.Decimal(14, 2)
+  bankInfo               String?   @db.Text
+  note                   String?   @db.Text
+  classification1Id      String?
+  classification2Id      String?
+  authorizedUserId       String?
+  slug                   String    @default("")
+  isAlsoSupplier         Boolean   @default(false)
+  linkedSupplierId       String?
+  archivedAt             DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  publicPaymentAccount FinancialAccount? @relation("CustomerPublicPaymentAccount", fields: [publicPaymentAccountId], references: [id], onDelete: SetNull)
-  linkedSupplier    Supplier?          @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
-  invoices          Invoice[]
-  quotes            Quote[]
-  orders            Order[]
-  transactions      Transaction[]
-  checks            Check[]
-  promissoryNotes   PromissoryNote[]
-  waybills          Waybill[]
-  branches          CustomerBranch[]
-  classification1   CompanyDefinition? @relation("CustomerClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
-  classification2   CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
-  authorizedUser    User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
-  restaurantTickets RestaurantTicket[]
-  virmanLegs        CariVirmanLeg[]
-  ledgerAccount     AccountPlan? @relation("AccountPlanCustomer")
+  company              Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  publicPaymentAccount FinancialAccount?  @relation("CustomerPublicPaymentAccount", fields: [publicPaymentAccountId], references: [id], onDelete: SetNull)
+  linkedSupplier       Supplier?          @relation("CustomerSupplierLink", fields: [linkedSupplierId], references: [id], onDelete: SetNull)
+  invoices             Invoice[]
+  quotes               Quote[]
+  orders               Order[]
+  transactions         Transaction[]
+  checks               Check[]
+  promissoryNotes      PromissoryNote[]
+  waybills             Waybill[]
+  branches             CustomerBranch[]
+  classification1      CompanyDefinition? @relation("CustomerClassification1", fields: [classification1Id], references: [id], onDelete: SetNull)
+  classification2      CompanyDefinition? @relation("CustomerClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
+  authorizedUser       User?              @relation("AuthorizedCustomerUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
+  restaurantTickets    RestaurantTicket[]
+  virmanLegs           CariVirmanLeg[]
+  ledgerAccount        AccountPlan?       @relation("AccountPlanCustomer")
 
   @@unique([linkedSupplierId])
   @@unique([companyId, slug])
@@ -786,7 +786,7 @@ model Supplier {
   classification2 CompanyDefinition? @relation("SupplierClassification2", fields: [classification2Id], references: [id], onDelete: SetNull)
   authorizedUser  User?              @relation("AuthorizedSupplierUser", fields: [authorizedUserId], references: [id], onDelete: SetNull)
   virmanLegs      CariVirmanLeg[]
-  ledgerAccount   AccountPlan? @relation("AccountPlanSupplier")
+  ledgerAccount   AccountPlan?       @relation("AccountPlanSupplier")
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -899,23 +899,23 @@ model Product {
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 
-  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  stockMovements   StockMovement[]
+  company            Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stockMovements     StockMovement[]
   cariProductAliases CariProductAlias[]
-  invoiceItems     InvoiceItem[]
-  quoteItems       QuoteItem[]
-  orderItems       OrderItem[]
-  warehouseStocks  WarehouseStock[]
-  waybillItems     WaybillItem[]
+  invoiceItems       InvoiceItem[]
+  quoteItems         QuoteItem[]
+  orderItems         OrderItem[]
+  warehouseStocks    WarehouseStock[]
+  waybillItems       WaybillItem[]
   // Bu ürünün reçetesi (mamül/yarı mamül ise) ve bu ürünün bileşen olarak
   // geçtiği reçete kalemleri (hammadde/yarı mamül ise).
-  recipe           ProductRecipe?         @relation("RecipeProduct")
-  usedInRecipes    ProductRecipeItem[]    @relation("RecipeComponent")
-  ticketItems      RestaurantTicketItem[]
-  optionGroups     ProductOptionGroup[]
+  recipe             ProductRecipe?         @relation("RecipeProduct")
+  usedInRecipes      ProductRecipeItem[]    @relation("RecipeComponent")
+  ticketItems        RestaurantTicketItem[]
+  optionGroups       ProductOptionGroup[]
   // Bu ürünün seçenek reçete etkisinde geçtiği yerler (süt → soya sütü).
-  optionEffectFrom ProductOption[]        @relation("OptionEffectFrom")
-  optionEffectTo   ProductOption[]        @relation("OptionEffectTo")
+  optionEffectFrom   ProductOption[]        @relation("OptionEffectFrom")
+  optionEffectTo     ProductOption[]        @relation("OptionEffectTo")
 
   @@unique([companyId, slug])
   @@index([companyId])
@@ -1575,37 +1575,44 @@ model CashCount {
 }
 
 model Transaction {
-  id          String   @id @default(cuid())
-  companyId   String
-  accountId   String
-  type        String // INCOME, EXPENSE, TRANSFER
-  amount      Decimal  @db.Decimal(15, 2)
-  currency    String   @default("TRY")
+  id              String   @id @default(cuid())
+  companyId       String
+  accountId       String
+  type            String // INCOME, EXPENSE, TRANSFER
+  amount          Decimal  @db.Decimal(15, 2)
+  currency        String   @default("TRY")
   // Dövizli hesabın hareketinde kur: 1 birim döviz = ? TL (TRY harekette null). Muhasebe
   // fişi TL karşılığını buradan kurar; para birimi hesabın kendisinden gelir.
-  exchangeRate Decimal? @db.Decimal(18, 6)
-  description String?  @db.Text
-  date        DateTime @default(now())
-  reference   String?
+  exchangeRate    Decimal? @db.Decimal(18, 6)
+  description     String?  @db.Text
+  date            DateTime @default(now())
+  reference       String?
   // Hesaplar arası virmanın iki bacağını bağlayan ortak kimlik (iki bacakta aynı). Eski
   // bacakta null: muhasebe onları tutar + gün + referansla eşleştirir (virmanEslestir).
   transferGroupId String?
-  customerId  String?
-  supplierId  String?
+  customerId      String?
+  supplierId      String?
   // Sınıflandırma — faturadaki (`Invoice.category`/`tags`) ile AYNI model ve aynı
   // küme: kategori TEK değer (kira, maaş, akaryakıt…), etiket ÇOKLU serbest metin
   // (proje, şube, kampanya…). Ayrı tablo yok, serbest metin + mevcut değerlerden
   // öneri. Faturadan farklı bir küme kullanılsaydı gelir-gider raporunda faturadaki
   // "Kira" ile fişteki "Kira" iki ayrı satır olurdu.
-  category    String?
-  tags        String[] @default([])
-  createdAt   DateTime @default(now())
-  createdBy   String?
+  category        String?
+  tags            String[] @default([])
+  // Hareketin TÜRÜ (2026-10-09): null = olağan gelir/gider (kategoriyle sınıflanır).
+  // Diğerleri bir borcu kapatır ya da hiç gelir/gider değildir — kural ve etiketler tek
+  // yerde: lib/finans/hareket-turu.ts (KDV, TAX, SGK, ADVANCE, LOAN, PARTNER).
+  purpose         String?
+  // Personel avansının (purpose ADVANCE) çalışanı. NO ACTION: avansı olan çalışan silinmez.
+  employeeId      String?
+  createdAt       DateTime @default(now())
+  createdBy       String?
 
-  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  account         FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  customer        Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  company         Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account         FinancialAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  employee        Employee?            @relation("TransactionEmployee", fields: [employeeId], references: [id], onDelete: NoAction)
+  customer        Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier        Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   invoicePayments InvoicePayment[]
   // Çalışana masraf iadesiyse defter satırı (bkz. EmployeeLedgerEntry).
   employeeLedger  EmployeeLedgerEntry?
@@ -1619,6 +1626,7 @@ model Transaction {
   @@index([customerId])
   @@index([supplierId])
   @@index([transferGroupId])
+  @@index([employeeId])
   @@map("transactions")
 }
 
@@ -1727,41 +1735,41 @@ model Invoice {
   updatedAt             DateTime  @updatedAt
   createdBy             String?
 
-  company             Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customer            Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  supplier            Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  okcDevice           OkcDevice?        @relation(fields: [okcDeviceId], references: [id], onDelete: SetNull)
+  company             Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer            Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier            Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  okcDevice           OkcDevice?       @relation(fields: [okcDeviceId], references: [id], onDelete: SetNull)
   items               InvoiceItem[]
   payments            InvoicePayment[]
   paymentLinks        PaymentLink[]
   convertedFromQuotes Quote[]
-  convertedFromOrders Order[]           @relation("OrderConvertedInvoice")
+  convertedFromOrders Order[]          @relation("OrderConvertedInvoice")
   waybills            Waybill[]
   // Fiş → resmî fatura self-relation. convertedInvoice = fişin dönüştürüldüğü fatura;
   // sourceReceipts = bu faturanın konsolide ettiği fişler.
-  convertedInvoice    Invoice?          @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
-  sourceReceipts      Invoice[]         @relation("ReceiptToInvoice")
+  convertedInvoice    Invoice?         @relation("ReceiptToInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+  sourceReceipts      Invoice[]        @relation("ReceiptToInvoice")
 
   // İade → asıl fatura self-relation. returnOf = bu iadenin iade ettiği fatura;
   // returns = bu faturaya kesilmiş iadeler. Asıl belge silinirse iade kalır
   // (SetNull): e-belge zaten gönderilmiş olabilir, no/tarih ayrı sütunlarda durur.
-  returnOf            Invoice?          @relation("InvoiceReturns", fields: [returnOfInvoiceId], references: [id], onDelete: SetNull)
-  returns             Invoice[]         @relation("InvoiceReturns")
+  returnOf         Invoice?          @relation("InvoiceReturns", fields: [returnOfInvoiceId], references: [id], onDelete: SetNull)
+  returns          Invoice[]         @relation("InvoiceReturns")
   // Faturanın alıcıya e-postayla gönderim kayıtları (otomatik + elle). lib/fatura-eposta/
-  emailLogs           InvoiceEmailLog[]
+  emailLogs        InvoiceEmailLog[]
   // Bu fiş bir adisyonun kapanışıysa buradan geriye bakılır (Aşama 2).
-  restaurantTicket    RestaurantTicket?
+  restaurantTicket RestaurantTicket?
   // Kobipo'nun KENDİ satışının faturasıysa (kontör / paket-abonelik) siparişe geri bağ.
   // Bu faturalar satıcı firmanın (REYPO) companyId'sinde durur, alıcının değil.
-  kontorOrder         KontorOrder?
-  packageOrder        PackageOrder?
+  kontorOrder      KontorOrder?
+  packageOrder     PackageOrder?
 
+  @@unique([companyId, slug])
   /// Tekillik DB'de KISMİ indekslerle (migrasyon 20260921000003): satış/iade
   /// (type <> PURCHASE) firma içinde tekil; alış (type = PURCHASE) tedarikçi
   /// bazında tekil (companyId, supplierId, invoiceNo — NULLS NOT DISTINCT).
   /// Prisma kısmi indeks ifade edemediği için burada düz indeks görünür.
   @@index([companyId, invoiceNo])
-  @@unique([companyId, slug])
   @@index([companyId, createdAt(sort: Desc)])
   @@index([companyId, status])
   @@index([companyId, isReceipt])
@@ -1842,18 +1850,18 @@ model OkcZReport {
 }
 
 model Quote {
-  id                 String    @id @default(cuid())
-  companyId          String
-  quoteNo            String
-  slug               String    @default("")
-  status             String    @default("DRAFT") // DRAFT, SENT, APPROVED, REJECTED, EXPIRED, CONVERTED
-  customerId         String?
-  supplierId         String?
-  date               DateTime  @default(now())
-  validUntil         DateTime?
-  totalAmount        Decimal   @db.Decimal(15, 2)
-  vatAmount          Decimal   @db.Decimal(15, 2)
-  netAmount          Decimal   @db.Decimal(15, 2)
+  id                   String    @id @default(cuid())
+  companyId            String
+  quoteNo              String
+  slug                 String    @default("")
+  status               String    @default("DRAFT") // DRAFT, SENT, APPROVED, REJECTED, EXPIRED, CONVERTED
+  customerId           String?
+  supplierId           String?
+  date                 DateTime  @default(now())
+  validUntil           DateTime?
+  totalAmount          Decimal   @db.Decimal(15, 2)
+  vatAmount            Decimal   @db.Decimal(15, 2)
+  netAmount            Decimal   @db.Decimal(15, 2)
   // Genel (teklif altı) iskonto — faturadaki globalDiscountAmount'un karşılığı,
   // faturaya dönüşümde o alana taşınır. Hesap: lib/teklif/quote-totals.ts.
   // Tutar HER ZAMAN uygulanan iskontodur. Oran yalnız yüzde girildiyse dolar:
@@ -1861,12 +1869,12 @@ model Quote {
   // yüzde olarak kalmalı, eski tutara donmamalı.
   globalDiscountRate   Decimal?  @db.Decimal(5, 2)
   globalDiscountAmount Decimal?  @db.Decimal(15, 2)
-  currency           String    @default("TRY")
-  notes              String?   @db.Text
-  convertedInvoiceId String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  createdBy          String?
+  currency             String    @default("TRY")
+  notes                String?   @db.Text
+  convertedInvoiceId   String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  createdBy            String?
 
   company          Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customer         Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -2047,10 +2055,10 @@ model InvoicePayment {
   createdAt     DateTime @default(now())
   createdBy     String?
 
-  invoice     Invoice           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  account     FinancialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  transaction Transaction?      @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  invoice        Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account        FinancialAccount?    @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  transaction    Transaction?         @relation(fields: [transactionId], references: [id], onDelete: Cascade)
   // paymentMethod = "EMPLOYEE" ise ödemeyi yapan çalışan (bkz. EmployeeLedgerEntry).
   employeeLedger EmployeeLedgerEntry?
 
@@ -2143,32 +2151,32 @@ model WaybillItem {
 }
 
 model Check {
-  id         String   @id @default(cuid())
-  companyId  String
-  checkNo    String
-  bankName   String
-  branchName String?
-  accountNo  String?
-  amount     Decimal  @db.Decimal(15, 2)
-  issueDate  DateTime
-  dueDate    DateTime
-  status     String   @default("PORTFÖYDE") // PORTFÖYDE, CİRO_EDİLDİ, TAHSİL_EDİLDİ, İADE_EDİLDİ, PROTESTOLU
+  id              String    @id @default(cuid())
+  companyId       String
+  checkNo         String
+  bankName        String
+  branchName      String?
+  accountNo       String?
+  amount          Decimal   @db.Decimal(15, 2)
+  issueDate       DateTime
+  dueDate         DateTime
+  status          String    @default("PORTFÖYDE") // PORTFÖYDE, CİRO_EDİLDİ, TAHSİL_EDİLDİ, İADE_EDİLDİ, PROTESTOLU
   // Durumun DEĞİŞTİĞİ gün (ciro/tahsil/iade/protesto); PORTFÖYDE'de null. Ciro fişinin tarihi
   // ve geçmiş tarihli portföy (bilanco-kiymet.ts) buradan okunur. Eski kayıtta migrasyon
   // `updatedAt` yazdı (20261005000001).
   statusChangedAt DateTime?
-  direction  String? // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
-  customerId String?
-  supplierId String?
+  direction       String? // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
+  customerId      String?
+  supplierId      String?
   // Kapattığı faturalar (BİLGİ amaçlı: bakiye çekin kendisinden düşer, fatura
   // açık tutarına dokunmaz). Çoklu bağ `invoiceIds`; `invoiceId` = listenin ilki,
   // eski okuyucular için tutulur. Düz string, ilişki yok (bkz. cek-senet/[id]).
-  invoiceId  String?
-  invoiceIds String[] @default([])
-  notes      String?  @db.Text
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  createdBy  String?
+  invoiceId       String?
+  invoiceIds      String[]  @default([])
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
 
   company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -2181,27 +2189,27 @@ model Check {
 }
 
 model PromissoryNote {
-  id         String   @id @default(cuid())
-  companyId  String
-  noteNo     String
-  amount     Decimal  @db.Decimal(15, 2)
-  issueDate  DateTime
-  dueDate    DateTime
-  status     String   @default("PORTFÖYDE") // PORTFÖYDE, CİRO_EDİLDİ, TAHSİL_EDİLDİ, İADE_EDİLDİ, PROTESTOLU
+  id              String    @id @default(cuid())
+  companyId       String
+  noteNo          String
+  amount          Decimal   @db.Decimal(15, 2)
+  issueDate       DateTime
+  dueDate         DateTime
+  status          String    @default("PORTFÖYDE") // PORTFÖYDE, CİRO_EDİLDİ, TAHSİL_EDİLDİ, İADE_EDİLDİ, PROTESTOLU
   // Durumun DEĞİŞTİĞİ gün (ciro/tahsil/iade/protesto); PORTFÖYDE'de null. Ciro fişinin tarihi
   // ve geçmiş tarihli portföy (bilanco-kiymet.ts) buradan okunur. Eski kayıtta migrasyon
   // `updatedAt` yazdı (20261005000001).
   statusChangedAt DateTime?
-  direction  String? // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
-  customerId String?
-  supplierId String?
+  direction       String? // RECEIVED (alınan) | GIVEN (verilen). null = eski kayıt: müşteri=alınan, tedarikçi=verilen.
+  customerId      String?
+  supplierId      String?
   // Çekle aynı: çoklu bağ `invoiceIds`, `invoiceId` = ilki (geriye dönük).
-  invoiceId  String?
-  invoiceIds String[] @default([])
-  notes      String?  @db.Text
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  createdBy  String?
+  invoiceId       String?
+  invoiceIds      String[]  @default([])
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
 
   company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -2225,11 +2233,9 @@ model AccountPlan {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  parent        AccountPlan?      @relation("AccountPlanHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children      AccountPlan[]     @relation("AccountPlanHierarchy")
-  debitEntries  AccountingEntry[] @relation("DebitEntries")
-  creditEntries AccountingEntry[] @relation("CreditEntries")
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   AccountPlan?  @relation("AccountPlanHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children AccountPlan[] @relation("AccountPlanHierarchy")
 
   // Muhasebe motoru (2026-10-02, docs/muhasebe/MOTOR-PLAN.md): cari alt hesabı
   // (120.… / 320.…) hangi cariye ait. Cari başına tek alt hesap.
@@ -2252,35 +2258,10 @@ model AccountPlan {
   @@map("account_plans")
 }
 
-model AccountingEntry {
-  id              String   @id @default(cuid())
-  companyId       String
-  entryNo         String
-  date            DateTime @default(now())
-  description     String?  @db.Text
-  debitAccountId  String
-  creditAccountId String
-  amount          Decimal  @db.Decimal(15, 2)
-  reference       String? // Invoice ID, Transaction ID, etc.
-  referenceType   String? // INVOICE, TRANSACTION, MANUAL, etc.
-  createdAt       DateTime @default(now())
-  createdBy       String?
-
-  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  debitAccount  AccountPlan @relation("DebitEntries", fields: [debitAccountId], references: [id], onDelete: Restrict)
-  creditAccount AccountPlan @relation("CreditEntries", fields: [creditAccountId], references: [id], onDelete: Restrict)
-
-  @@index([companyId])
-  @@index([date])
-  @@index([debitAccountId])
-  @@index([creditAccountId])
-  @@map("accounting_entries")
-}
-
 /// Yevmiye fişi (çok satırlı mahsup) — muhasebe motoru, docs/muhasebe/MOTOR-PLAN.md.
 /// Belgeden kendiliğinden TASLAK doğar (lib/muhasebe/fis-kurallari.ts), kullanıcı
-/// eksik hesabı seçip ONAYLAR. `AccountingEntry` (tek borç–tek alacak) bunun yerini
-/// alacak eski modeldir.
+/// eksik hesabı seçip ONAYLAR. Eski tek borç–tek alacak modeli (`accounting_entries`)
+/// 2026-10-09'da kaldırıldı (migrasyon 20261009000002).
 model JournalVoucher {
   id              String    @id @default(cuid())
   companyId       String
@@ -2386,6 +2367,39 @@ model AccountingSettings {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@map("accounting_settings")
+}
+
+/// Demirbaş (sabit kıymet) — amortismanın kaynağı (muhasebe, 2026-10-09). Defter sahibi
+/// firmaya yazılır (şubede ana firma). Yıl sonu amortisman fişi kendiliğinden doğar
+/// (kural: lib/muhasebe/amortisman.ts; kaynak türü DEPRECIATION).
+model FixedAsset {
+  id                String    @id @default(cuid())
+  companyId         String
+  name              String
+  /// Tekdüzen varlık hesabı: 252 Binalar, 253 Tesis makine, 254 Taşıtlar, 255 Demirbaşlar,
+  /// 260 Haklar, 264 Özel maliyetler… (alt hesabı da olabilir: 255.01)
+  accountCode       String    @default("255")
+  acquisitionDate   DateTime
+  cost              Decimal   @db.Decimal(15, 2)
+  /// Faydalı ömür (yıl) — VUK amortisman listesi.
+  usefulLife        Int
+  /// NORMAL (eşit tutarlar) | AZALAN (azalan bakiyeler: normal oranın iki katı, en çok %50)
+  method            String    @default("NORMAL")
+  /// Defterin başlangıcından ÖNCE ayrılmış birikmiş amortisman (açılışta 257/268'de durur).
+  priorDepreciation Decimal   @default(0) @db.Decimal(15, 2)
+  /// Elden çıkarma (satış, hurda) günü; o yıldan sonra amortisman ayrılmaz.
+  disposedAt        DateTime?
+  /// Alındığı alış faturası (bilgi; FK yok — fatura silinse de demirbaş kalır).
+  invoiceId         String?
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  createdBy         String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("fixed_assets")
 }
 
 // Sistem logları - Super Admin için
@@ -3224,6 +3238,8 @@ model Employee {
   // Çalışanın firma adına cebinden ödedikleri ve geri ödemeleri (masraf defteri).
   ledgerEntries    EmployeeLedgerEntry[]
   ledgerAccount    AccountPlan?           @relation("AccountPlanEmployee")
+  // Çalışana verilen avanslar (Transaction.purpose = ADVANCE).
+  advances         Transaction[]          @relation("TransactionEmployee")
 
   // Bir hesap aynı firmada iki personel kartına bağlanamaz (kimin vardiyası, kimin
   // bordrosu sorusu belirsizleşirdi). Farklı firmalarda aynı hesap serbesttir.
@@ -3567,26 +3583,26 @@ model EmployeeDocumentBlob {
 // GİZLEME: firma katalogdaki bir şablonu kullanmak istemiyorsa kopyasını üretip
 // `isActive=false` yapar — katalog satırı ortadan kalkmaz, diğer firmalar görür.
 model DocumentTemplate {
-  id        String  @id @default(cuid())
+  id          String   @id @default(cuid())
   /// Boş = Kobipo kataloğu (sistem admin); dolu = firmanın kendi şablonu.
-  companyId String?
+  companyId   String?
   /// Kararlı anahtar. Katalogda benzersiz, firma içinde benzersiz.
-  key       String
+  key         String
   /// Kopyaysa kaynak katalog şablonunun `key`i — iz, yabancı anahtar DEĞİL.
-  sourceKey String?
-  title     String
+  sourceKey   String?
+  title       String
   /// Sözleşme, İzin, Zimmet, Fesih, Talep, Diğer
-  category  String?
+  category    String?
   /// Şablon gövdesi (HTML). `{Alan Adı}` yer tutucuları içerir.
-  body      String  @db.Text
+  body        String   @db.Text
   /// Şablon yazarına gösterilen kısa açıklama (ne zaman kullanılır).
   description String?
-  sortOrder Int     @default(0)
+  sortOrder   Int      @default(0)
   /// Pasif şablon doldurma ekranında listelenmez; basılmış belgeler etkilenmez.
-  isActive  Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  createdBy String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -3608,30 +3624,30 @@ model DocumentTemplate {
 // tutar üzerinden hesaplanır. Faturada iskonto AYRI satır olarak işlenir: kalem
 // liste fiyatından yazılır, indirim `InvoiceItem.discountAmount`a düşer.
 model DiscountCode {
-  id          String  @id @default(cuid())
+  id                String    @id @default(cuid())
   /// Büyük harfe normalize edilmiş kod (kullanıcı küçük harf yazsa da bulunur).
-  code        String  @unique
-  description String?
+  code              String    @unique
+  description       String?
   /// PERCENT | AMOUNT
-  type        String
+  type              String
   /// PERCENT'te yüzde (1-100), AMOUNT'ta TL (KDV dahil).
-  value       Decimal @db.Decimal(10, 2)
+  value             Decimal   @db.Decimal(10, 2)
   /// KONTOR | PACKAGE | ALL — kodun geçerli olduğu satış türü.
-  scope       String  @default("ALL")
-  startsAt    DateTime?
-  endsAt      DateTime?
+  scope             String    @default("ALL")
+  startsAt          DateTime?
+  endsAt            DateTime?
   /// Toplam kullanım hakkı. Boş = sınırsız.
-  maxRedemptions Int?
+  maxRedemptions    Int?
   /// Firma başına kullanım hakkı. Boş = sınırsız.
-  maxPerCompany  Int?     @default(1)
-   /// Abonelik YENİLEMELERİNDE de geçerli mi? False ise indirim yalnız ilk ödemeye
-   /// uygulanır ve `Subscription.amount` LİSTE tutarıyla yazılır — yenileme tam
-   /// fiyattan çekilir. True ise abonelik indirimli tutarla yenilenir.
-   /// Kontör tek seferlik olduğu için bu alandan etkilenmez.
-  appliesToRenewals Boolean @default(false)
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  maxPerCompany     Int?      @default(1)
+  /// Abonelik YENİLEMELERİNDE de geçerli mi? False ise indirim yalnız ilk ödemeye
+  /// uygulanır ve `Subscription.amount` LİSTE tutarıyla yazılır — yenileme tam
+  /// fiyattan çekilir. True ise abonelik indirimli tutarla yenilenir.
+  /// Kontör tek seferlik olduğu için bu alandan etkilenmez.
+  appliesToRenewals Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   redemptions DiscountCodeRedemption[]
 
@@ -3639,8 +3655,8 @@ model DiscountCode {
   @@map("discount_codes")
 }
 
- /// Kullanım kaydı — kod limitleri BURADAN sayılır. Satır yalnız ÖDEME BAŞARILI
- /// olduğunda yazılır: yarım kalan sipariş kimsenin hakkını yemez.
+/// Kullanım kaydı — kod limitleri BURADAN sayılır. Satır yalnız ÖDEME BAŞARILI
+/// olduğunda yazılır: yarım kalan sipariş kimsenin hakkını yemez.
 model DiscountCodeRedemption {
   id             String   @id @default(cuid())
   codeId         String
@@ -3676,14 +3692,14 @@ model DiscountCodeRedemption {
 /// `companyId` bilerek ilişkisiz: emsali `PayrollRecord`. Günlük analitik bir
 /// kayıttır, firma silinince Prisma zincirine takılmasına gerek yok.
 model AutomationCardEvent {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   companyId   String
   /// Kartı gören kişi — rol bazlı fark ölçümü için.
   userId      String?
   /// K-STK-01 gibi. Katalog: docs/otomasyonlar/KATALOG.md
   cardKey     String
   /// Eşik veya metin değişince artar; eski ve yeni eşiğin verisi karışmasın.
-  cardVersion Int    @default(1)
+  cardVersion Int     @default(1)
   /// KRITIK | YUKSEK | ORTA | DUSUK
   severity    String
 
@@ -3696,13 +3712,13 @@ model AutomationCardEvent {
   subjectId   String
 
   /// Karta basılan rakamların tamamı.
-  payload     Json
+  payload Json
 
-  shownAt     DateTime  @default(now())
+  shownAt  DateTime @default(now())
   /// Gösterimin ait olduğu gün (UTC 00:00). Aynı kart aynı özne için günde bir
   /// kez yazılsın diye: sayfa her açılışta satır atarsa gösterim sayısı ilgiyle
   /// karışır ve oran ölçülemez olur.
-  shownDay    DateTime  @db.Date
+  shownDay DateTime @db.Date
 
   /// ACTED | DISMISSED | SNOOZED · null = henüz karar verilmedi
   decision    String?

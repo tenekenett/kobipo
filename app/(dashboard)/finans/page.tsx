@@ -1,5 +1,6 @@
 "use client"
 
+import { HAREKET_TURLERI, HAREKET_TURU_BILGISI, hareketTuruAdi, type HareketTuru } from "@/lib/finans/hareket-turu"
 import { WriteAction } from "@/components/dashboard/write-guard"
 import { useEffect, useState } from "react"
 import { useSearchParams } from "next/navigation"
@@ -99,6 +100,8 @@ export default function FinansPage() {
     customerId: "",
     supplierId: "",
     category: "",
+    // Hareketin türü (vergi, SGK, kredi, ortak) — lib/finans/hareket-turu.ts. Boş = olağan gelir/gider.
+    purpose: "",
   })
 
   /**
@@ -227,6 +230,7 @@ export default function FinansPage() {
           customerId: "",
           supplierId: "",
           category: "",
+          purpose: "",
         })
         fetchTransactions()
         fetchAccounts()
@@ -519,7 +523,8 @@ export default function FinansPage() {
                             id="type"
                             value={transactionFormData.type}
                             onChange={(e) =>
-                              setTransactionFormData({ ...transactionFormData, type: e.target.value })
+                              // Tür yöne bağlıdır (SGK yalnız çıkış): tip değişince sıfırlanır.
+                              setTransactionFormData({ ...transactionFormData, type: e.target.value, purpose: "" })
                             }
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             required
@@ -613,6 +618,35 @@ export default function FinansPage() {
                             disabled={isLoading}
                           />
                         </div>
+                        {/* İşlem türü: vergi/SGK ödemesi borcu kapatır, kredi ve ortak parası
+                            gelir/gider değildir (lib/finans/hareket-turu.ts). Personel avansı
+                            burada yok — çalışan seçimi personel kartında (maaş bilgisi). */}
+                        {transactionFormData.type !== "TRANSFER" && (
+                          <div className="space-y-2 md:col-span-2">
+                            <Label htmlFor="purpose">İşlem türü</Label>
+                            <select
+                              id="purpose"
+                              value={transactionFormData.purpose}
+                              onChange={(e) => setTransactionFormData({ ...transactionFormData, purpose: e.target.value })}
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              disabled={isLoading}
+                            >
+                              <option value="">{transactionFormData.type === "INCOME" ? "Gelir" : "Gider"} (olağan)</option>
+                              {HAREKET_TURLERI.filter(
+                                (t) => t !== "ADVANCE" && HAREKET_TURU_BILGISI[t].yonler.includes(transactionFormData.type as "INCOME" | "EXPENSE"),
+                              ).map((t) => (
+                                <option key={t} value={t}>
+                                  {hareketTuruAdi(t, transactionFormData.type)}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-xs text-muted-foreground">
+                              {transactionFormData.purpose
+                                ? HAREKET_TURU_BILGISI[transactionFormData.purpose as HareketTuru]?.aciklama
+                                : "Vergi, SGK, kredi ya da ortak parasıysa türünü seçin: bunlar kâr/zararda gider sayılmaz ya da muhasebede borcu kapatır. Personel avansı personel kartından verilir."}
+                            </p>
+                          </div>
+                        )}
                         {/* Kategori yalnız GELİR/GİDERDE sorulur: virman iki kendi
                             hesabımız arasında para taşır, gider değildir — kategori
                             sorulsaydı gelir-gider raporunda sahte bir kalem açardı. */}

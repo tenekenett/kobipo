@@ -223,6 +223,12 @@ export async function fisGeriAl(ctx: Ctx, fisId: string): Promise<void> {
   const fis = await fisOku(ctx, fisId)
   if (fis.status !== "POSTED") throw new FisHatasi("Fiş taslak durumda.")
   if (kilitliMi(ctx.ayar, fis.date)) throw new FisHatasi("Fişin tarihi kapanmış (kilitli) dönemde.")
+  // Defterden türeyen fişler kendi ekranından geri alınır: taslağa dönen bir mahsup ya da
+  // kapanış fişi, onları kuran hesabın (ay sırası, kilit) dışında kalırdı.
+  if (fis.sourceType === "KDV_MAHSUP" || fis.sourceType === "STOK_MALIYET") {
+    throw new FisHatasi("Ay sonu fişleri (KDV mahsubu, satılan malın maliyeti) Ay Sonu İşlemleri ekranından geri alınır.")
+  }
+  if (fis.sourceType === "CLOSING") throw new FisHatasi("Kapanış fişleri Muhasebe Ayarları'ndaki dönem kapanışından geri alınır.")
   await prisma.journalVoucher.update({
     where: { id: fisId },
     data: { status: "DRAFT", approvedAt: null, approvedBy: null },

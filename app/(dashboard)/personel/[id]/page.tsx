@@ -29,6 +29,7 @@ import {
 } from "@/components/personel/employee-restoran-tab"
 import { EmployeeVardiyaTab } from "@/components/personel/employee-vardiya-tab"
 import { EmployeeMasrafTab } from "@/components/personel/employee-masraf-tab"
+import { EmployeeAvansTab } from "@/components/personel/employee-avans-tab"
 import { ArrowLeft, Calculator, FileText, FileDown, ExternalLink, Plus, Pencil, Trash2, Wallet, CalendarCheck, BadgeCheck, FolderOpen } from "lucide-react"
 import { MaasAlanlari, type MaasBasis } from "@/components/personel/maas-alanlari"
 import {
@@ -430,6 +431,7 @@ export default function PersonelDetayPage() {
           <TabsTrigger value="belge">Belgeler ({emp.documents.length})</TabsTrigger>
           {/* Sayaç yok: defter sekme açılınca çekilir (vardiya sekmesiyle aynı). */}
           <TabsTrigger value="masraf">Masraflar</TabsTrigger>
+          <TabsTrigger value="avans">Avanslar</TabsTrigger>
           {/* Restoran modülü kapalıysa sekme hiç çizilmez — İK ekranı
               kullanılmayan bir modülün boş tablosunu göstermemeli. */}
           {restoran?.enabled && (
@@ -741,6 +743,15 @@ export default function PersonelDetayPage() {
         {/* MASRAFLAR — çalışanın cebinden ödediği faturalar ve geri ödemeler */}
         <TabsContent value="masraf">
           <EmployeeMasrafTab
+            employeeId={emp.id}
+            employeeName={`${emp.firstName} ${emp.lastName}`.trim()}
+            companyId={companyId}
+          />
+        </TabsContent>
+
+        {/* AVANSLAR — maaştan önce verilen avans, bordrodan düşülenler (lib/personel/avans.ts) */}
+        <TabsContent value="avans">
+          <EmployeeAvansTab
             employeeId={emp.id}
             employeeName={`${emp.firstName} ${emp.lastName}`.trim()}
             companyId={companyId}

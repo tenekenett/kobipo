@@ -216,3 +216,55 @@ export function gelirTablosuKur(
   ]
   return { kalemler, netKar }
 }
+
+// ── Ekranın açıklamaları ─────────────────────────────────────────────────────
+
+export type TabloNotlari = {
+  onayliFis: number
+  taslakFis: number
+  /** Ön izlemede hesabı seçilmemiş satırlar — mizana (dolayısıyla tablolara) girmedi. */
+  hesapsiz: { borc: number; alacak: number; fisSayisi: number } | null
+  /**
+   * Bilanço denk değil ama fark TAMAMEN hesapsız satırlardan geliyor: hata değil,
+   * hesap seçilince kapanır. Fişler dengeli olduğu için aktif − pasif = hesapsız
+   * satırların alacak − borç farkıdır.
+   */
+  farkHesapsizdan: boolean
+  /** Bilanço denk değil ve fark hesapsız satırlarla açıklanamıyor — gerçek hata. */
+  dengeHatasi: boolean
+  /**
+   * Ticari mal stoğu (153) var ama dönemde satılan malın maliyeti (62) hiç yazılmamış:
+   * gelir tablosunda brüt kâr net satışa eşit görünür. Aralıklı envanterde maliyet yıl
+   * sonu sayımıyla kapanışta hesaplanır.
+   */
+  smmEksik: { stok: number; satis: number } | null
+}
+
+export function tabloNotlari(g: {
+  bilanco: Bilanco
+  bilancoMizani: MizanSatiri[]
+  donemMizani: MizanSatiri[]
+  hesapsiz: { borc: number; alacak: number; fisSayisi: number } | null
+  onayliFis: number
+  taslakFis: number
+}): TabloNotlari {
+  const fark = r2(g.bilanco.aktifToplam - g.bilanco.pasifToplam)
+  const hesapsiz = g.hesapsiz && (g.hesapsiz.borc || g.hesapsiz.alacak) ? g.hesapsiz : null
+  const beklenen = hesapsiz ? r2(hesapsiz.alacak - hesapsiz.borc) : 0
+  const farkHesapsizdan = fark !== 0 && hesapsiz !== null && Math.abs(fark - beklenen) < 0.01
+  const kebir = (m: MizanSatiri[], kod: string) => m.find((s) => s.kod === kod)
+  const stok = kebir(g.bilancoMizani, "153")
+  const stokBakiye = stok ? net(stok) : 0
+  const satis = kebir(g.donemMizani, "60")
+  const satisTutari = satis ? r2(satis.donemAlacak - satis.donemBorc) : 0
+  const smm = kebir(g.donemMizani, "62")
+  const smmVar = Boolean(smm && (smm.donemBorc || smm.donemAlacak))
+  return {
+    onayliFis: g.onayliFis,
+    taslakFis: g.taslakFis,
+    hesapsiz,
+    farkHesapsizdan,
+    dengeHatasi: fark !== 0 && !farkHesapsizdan,
+    smmEksik: stokBakiye > 0 && satisTutari > 0 && !smmVar ? { stok: stokBakiye, satis: satisTutari } : null,
+  }
+}

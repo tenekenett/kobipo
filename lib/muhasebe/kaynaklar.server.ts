@@ -17,6 +17,8 @@ import {
 import { resolveCekSenetDirection } from "@/lib/cek-senet/labels"
 import { bordroIsverenPayi } from "@/lib/personel/bordro-hesap"
 import { virmanEslestir, type VirmanBacagi } from "@/lib/muhasebe/virman-eslestir"
+import { hareketTuruMu } from "@/lib/finans/hareket-turu"
+import { amortismanFisi, type DemirbasGirdisi } from "@/lib/muhasebe/amortisman"
 import {
   CHECK_SETTLEMENT_PREFIXES,
   EMPLOYEE_REIMBURSEMENT_PREFIX,
@@ -50,6 +52,7 @@ export type KaynakTipi =
   | "PAYROLL"
   | "CARI_OPENING"
   | "ACCOUNT_OPENING"
+  | "DEPRECIATION"
 
 export type KaynakFisi = {
   tip: KaynakTipi
@@ -173,6 +176,8 @@ async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pr
       description: true,
       category: true,
       reference: true,
+      purpose: true,
+      employee: { select: { id: true, firstName: true, lastName: true } },
       account: { select: { id: true, name: true, type: true, companyId: true } },
       customer: { select: { id: true, name: true } },
       supplier: { select: { id: true, name: true } },
@@ -319,6 +324,8 @@ async function hareketFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Pr
       virmanHedefi: s.type === "TRANSFER" && hedefKasa ? { id: hedefKasa.id, ad: hedefKasa.name, tur: hedefKasa.type } : null,
       virmanKaynagi: refKasa ? { id: refKasa.id, ad: refKasa.name, tur: refKasa.type } : null,
       yabanciKasa: !ctx.sirketIds.includes(s.account.companyId),
+      tur: hareketTuruMu(s.purpose) ? s.purpose : null,
+      avansPersonel: s.employee ? { id: s.employee.id, ad: kisiAdi(s.employee) } : null,
     }
     return { tip: "TRANSACTION" as const, id: s.id, sirketId: s.companyId, fis: hareketFisi(girdi, ctx.eslesme), giris: s.date }
   })
@@ -663,6 +670,61 @@ async function finansAcilisFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi
   }))
 }
 
+// ── Demirbaş amortismanı ─────────────────────────────────────────────────────
+
+/** İstanbul takvimiyle içinde bulunulan yıl — amortisman fişi bu yıla kadar açılır. */
+const buYil = () => new Date(Date.now() + 3 * 3_600_000).getUTCFullYear()
+
+/** Kaynak id'si "<demirbaş>:<yıl>": demirbaş başına her yılın ayrı fişi. */
+async function amortismanFisleri(ctx: YukleyiciBaglami, filtre: KaynakFiltresi): Promise<KaynakFisi[]> {
+  const istenen = filtre.ids?.map((i) => ({ id: i.slice(0, i.lastIndexOf(":")), yil: Number(i.slice(i.lastIndexOf(":") + 1)) }))
+  const demirbaslar = await prisma.fixedAsset.findMany({
+    where: { companyId: { in: ctx.sirketIds }, ...(istenen ? { id: { in: [...new Set(istenen.map((x) => x.id))] } } : {}) },
+  })
+  const baslangicYili = ctx.baslangic.getUTCFullYear()
+  const sonuc: KaynakFisi[] = []
+  for (const a of demirbaslar) {
+    const d = demirbasGirdisi(a)
+    const yillar = istenen
+      ? istenen.filter((x) => x.id === a.id).map((x) => x.yil)
+      : Array.from({ length: Math.max(0, buYil() - baslangicYili + 1) }, (_, i) => baslangicYili + i)
+    for (const yil of yillar) {
+      sonuc.push({
+        tip: "DEPRECIATION",
+        id: `${a.id}:${yil}`,
+        sirketId: a.companyId,
+        giris: new Date(Date.UTC(yil, 11, 31)),
+        fis: amortismanFisi(d, yil, baslangicYili, ctx.eslesme),
+      })
+    }
+  }
+  return sonuc
+}
+
+export function demirbasGirdisi(a: {
+  id: string
+  name: string
+  accountCode: string
+  acquisitionDate: Date
+  cost: Prisma.Decimal | number
+  usefulLife: number
+  method: string
+  priorDepreciation: Prisma.Decimal | number
+  disposedAt: Date | null
+}): DemirbasGirdisi {
+  return {
+    id: a.id,
+    ad: a.name,
+    hesapKodu: a.accountCode,
+    alisTarihi: a.acquisitionDate,
+    maliyet: Number(a.cost),
+    omur: a.usefulLife,
+    yontem: a.method === "AZALAN" ? "AZALAN" : "NORMAL",
+    oncekiAmortisman: Number(a.priorDepreciation),
+    cikisTarihi: a.disposedAt,
+  }
+}
+
 type Yukleyici = (ctx: YukleyiciBaglami, filtre: KaynakFiltresi) => Promise<KaynakFisi[]>
 
 export const KAYNAK_TIPLERI: Record<KaynakTipi, { ad: string; yukle: Yukleyici }> = {
@@ -677,6 +739,7 @@ export const KAYNAK_TIPLERI: Record<KaynakTipi, { ad: string; yukle: Yukleyici }
   PAYROLL: { ad: "Bordro", yukle: bordroFisleri },
   CARI_OPENING: { ad: "Cari açılış bakiyesi", yukle: cariAcilisFisleri },
   ACCOUNT_OPENING: { ad: "Kasa açılış bakiyesi", yukle: finansAcilisFisleri },
+  DEPRECIATION: { ad: "Amortisman", yukle: amortismanFisleri },
 }
 
 export function kaynakTipiMi(v: unknown): v is KaynakTipi {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { faturaKuru } from "@/lib/cari/doviz"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
@@ -225,6 +226,8 @@ export const GET = withApiErrors(async function GET(
           invoiceNo: true,
           eDocumentNo: true,
           totalAmount: true,
+          currency: true,
+          exchangeRate: true,
         payments: {
           where: { transactionId: null },
           select: { id: true, amount: true, paymentDate: true, createdAt: true, transactionId: true, reference: true, paymentMethod: true },
@@ -275,6 +278,18 @@ export const GET = withApiErrors(async function GET(
       // Cari virman fişi bacakları (lib/cari/virman.ts) — bakiyeye VE tabloya girer.
       fetchVirmanLegsForParty("customer", customer.id),
     ])
+
+    // Dövizli fatura cariye FATURA KURUYLA girer (lib/cari/doviz.ts). Yukarıdaki toplamlar
+    // döviz tutarını TL gibi topladı; aradaki fark burada eklenir (işaret müşteri ekseni:
+    // satış +, satış iadesi −, alış (mahsup) −, alış iadesi + — bakiye-asof.ts ile aynı).
+    for (const inv of allInvoices) {
+      const kur = faturaKuru(inv)
+      if (kur === 1) continue
+      const net = Number(inv.totalAmount) - inv.payments.reduce((a, p) => a + Number(p.amount), 0)
+      const isaret =
+        inv.type === "SALES" ? 1 : inv.type === "PURCHASE" ? -1 : inv.type === "RETURN" && inv.returnKind === "PURCHASE" ? 1 : -1
+      balance += isaret * net * (kur - 1)
+    }
 
     // Virman: müşteride "Virman Borç" bakiyeyi artırır, "Virman Alacak" azaltır.
     balance += virmanLegs.reduce((s, leg) => s + virmanBakiyeEtkisi("customer", leg.side, leg.amount), 0)

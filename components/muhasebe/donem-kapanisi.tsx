@@ -25,6 +25,8 @@ type Durum = {
   uyarilar: string[]
   netKar: number
   stok153: number
+  /** Kobipo stok kayıtlarına göre yıl sonu stok değeri (stok takibi yoksa null). */
+  kobipoStok: number | null
   fisler: Array<{ anahtar: string; aciklama: string; tarih: string; tutar: number; satirSayisi: number }>
 }
 
@@ -155,6 +157,15 @@ export function DonemKapanisi({
               placeholder={onizleme ? `Defterde ${tutarSifirli(onizleme.stok153)}` : "0,00"}
               className="w-56 text-right tabular-nums"
             />
+            {onizleme?.kobipoStok != null && (
+              <button
+                type="button"
+                className="block text-xs text-kobipo-blue hover:underline"
+                onClick={() => setStok(String(onizleme.kobipoStok))}
+              >
+                Kobipo stok kayıtlarına göre {tutarSifirli(onizleme.kobipoStok)} — kullan
+              </button>
+            )}
           </div>
         )}
       </div>

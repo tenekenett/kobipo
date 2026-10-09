@@ -863,6 +863,14 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </div>
                     )}
                   </div>
+                  {/* Carisiz evrak hiçbir carinin bakiyesine girmez; muhasebe fişinde karşı hesap
+                      elle seçilir (lib/muhasebe/para-kurallari.ts → kiymetFisi). Zorunlu değil:
+                      kaydı okutma ve hızlı giriş yolları cari bilmeden de evrak açar. */}
+                  {!checkForm.customerId && !checkForm.supplierId && (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                      Müşteri ya da tedarikçi seçmezseniz evrak hiçbir cari bakiyesine girmez; muhasebe kaydında karşı hesabı elle seçmeniz gerekir.
+                    </p>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="notes">Notlar</Label>
                     <Textarea
@@ -1054,6 +1062,14 @@ export function CekSenetManager({ mode }: { mode: Mode }) {
                       </div>
                     )}
                   </div>
+                  {/* Carisiz evrak hiçbir carinin bakiyesine girmez; muhasebe fişinde karşı hesap
+                      elle seçilir (lib/muhasebe/para-kurallari.ts → kiymetFisi). Zorunlu değil:
+                      kaydı okutma ve hızlı giriş yolları cari bilmeden de evrak açar. */}
+                  {!noteForm.customerId && !noteForm.supplierId && (
+                    <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                      Müşteri ya da tedarikçi seçmezseniz evrak hiçbir cari bakiyesine girmez; muhasebe kaydında karşı hesabı elle seçmeniz gerekir.
+                    </p>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="notes">Notlar</Label>
                     <Textarea

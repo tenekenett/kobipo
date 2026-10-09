@@ -8,6 +8,7 @@
 
 import type { LucideIcon } from "lucide-react"
 import {
+  Armchair,
   ArrowLeftRight,
   BadgeCheck,
   Banknote,
@@ -134,11 +135,14 @@ const ICONS: Record<string, LucideIcon> = {
   "/personel/ik": FolderOpen,
   "/personel/belge-sablonlari": FileSignature,
 
+  "/muhasebe/ozet": LayoutDashboard,
   "/muhasebe/fisler": FileStack,
   "/muhasebe/yevmiye": BookOpen,
   "/muhasebe/kebir": BookMarked,
   "/muhasebe/mizan": Scale,
   "/muhasebe/mali-tablolar": Landmark,
+  "/muhasebe/ay-sonu": CalendarCheck,
+  "/muhasebe/demirbaslar": Armchair,
   "/muhasebe/hesap-plani": ListTree,
   "/muhasebe/ayarlar": Settings2,
 

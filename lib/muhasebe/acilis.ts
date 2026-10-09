@@ -9,6 +9,10 @@
  *   kasa / banka / kart    bakiye − sınırdan sonraki hareket → 100 / 102 / 309 alt hesabı
  *   portföydeki çek/senet  lib/raporlar/bilanco-kiymet.ts   → 101 · 121 (alınan) / 103 · 321 (verilen)
  *   personel masraf defteri lib/personel/masraf-defteri.ts  → 335 personel alt hesabı
+ *   açık personel avansı    lib/personel/avans.server.ts     → 196 (bordro mahsubuyla aynı hesap)
+ *   kredi / ortak hareketi  Transaction.purpose LOAN/PARTNER → 300 · 331 / 131 (hareket-turu.ts)
+ *   demirbaşlar             FixedAsset (başlangıçtan önce alınan) → 25x/26x maliyet · 257/268 birikmiş
+ *   stok                    Kobipo stok defteri (miktar × AVCO, stok-maliyeti.server.ts) → 153
  *
  * Stok, demirbaş, sermaye, kredi Kobipo'da tutulmuyor: aradaki fark tek bir
  * HESAPSIZ satırda durur (öneri 500 Sermaye) ve müşavir onu dağıtır — elle satır
@@ -34,6 +38,16 @@ export type AcilisGirdisi = {
   kiymet: { alinanCek: number; verilenCek: number; alinanSenet: number; verilenSenet: number }
   /** + = firma çalışana borçlu. */
   personel: Array<{ id: string; ad: string; bakiye: number }>
+  /** Açık personel avansı — + = çalışan firmaya borçlu (verilmiş, bordrodan düşülmemiş). */
+  avanslar?: Array<{ id: string; ad: string; bakiye: number }>
+  /** Kullanılan − ödenen kredi anaparası (+ = borç). */
+  krediler?: number
+  /** Ortaktan gelen − ortağa ödenen (+ = ortağa borç, − = ortaktan alacak). */
+  ortak?: number
+  /** Başlangıçtan önce alınmış, elden çıkarılmamış demirbaşlar (Muhasebe → Demirbaşlar). */
+  demirbaslar?: Array<{ ad: string; hesapKodu: string; maliyet: number; birikmis: number }>
+  /** Başlangıçtaki ticari mal stoğunun değeri (aylık maliyet hesabıyla aynı değerleme). */
+  stok?: number
 }
 
 export const ACILIS_FARK_ACIKLAMASI = "Açılış farkı — dağıtılacak (sermaye, stok, demirbaş…)"
@@ -105,6 +119,48 @@ export function acilisFisi(g: AcilisGirdisi): HazirFis {
       aciklama: p.ad,
       alt: { tur: "personel", id: p.id, ad: p.ad },
     })
+  }
+
+  for (const a of g.avanslar ?? []) {
+    ekle({
+      taraf: "B",
+      tutar: r2(num(a.bakiye)),
+      rol: "ACILIS",
+      hesapKodu: "196",
+      oneriKodu: "196",
+      kaynak: "varsayilan",
+      anahtarlar: [],
+      aciklama: `Personel avansı · ${a.ad}`,
+    })
+  }
+
+  const kredi = r2(num(g.krediler))
+  if (kredi !== 0) {
+    ekle({ taraf: "A", tutar: kredi, rol: "ACILIS", hesapKodu: "300", oneriKodu: "300", kaynak: "varsayilan", anahtarlar: [], aciklama: "Banka kredileri (kullanılan − ödenen)" })
+  }
+  const ortak = r2(num(g.ortak))
+  if (ortak !== 0) {
+    const borc = ortak > 0
+    ekle({
+      taraf: borc ? "A" : "B",
+      tutar: Math.abs(ortak),
+      rol: "ACILIS",
+      hesapKodu: borc ? "331" : "131",
+      oneriKodu: borc ? "331" : "131",
+      kaynak: "varsayilan",
+      anahtarlar: [],
+      aciklama: borc ? "Ortaklara borçlar" : "Ortaklardan alacaklar",
+    })
+  }
+
+  const stok = r2(num(g.stok))
+  if (stok > 0) {
+    ekle({ taraf: "B", tutar: stok, rol: "ACILIS", hesapKodu: "153", oneriKodu: "153", kaynak: "varsayilan", anahtarlar: [], aciklama: "Başlangıçtaki stok (Kobipo stok kayıtlarından)" })
+  }
+  for (const d of g.demirbaslar ?? []) {
+    ekle({ taraf: "B", tutar: r2(num(d.maliyet)), rol: "ACILIS", hesapKodu: d.hesapKodu, oneriKodu: d.hesapKodu.split(".")[0], kaynak: "varsayilan", anahtarlar: [], aciklama: d.ad })
+    const birikmis = d.hesapKodu.split(".")[0].startsWith("26") ? "268" : "257"
+    ekle({ taraf: "A", tutar: r2(num(d.birikmis)), rol: "ACILIS", hesapKodu: birikmis, oneriKodu: birikmis, kaynak: "varsayilan", anahtarlar: [], aciklama: `Birikmiş amortisman · ${d.ad}` })
   }
 
   const fark = acilisFarki(satirlar)

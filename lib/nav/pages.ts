@@ -135,11 +135,14 @@ export const NAV_PAGES: NavPageDef[] = [
   // Muhasebe (2026-10-04) — ayrı, ücretli modül (`accounting`); şubeye açılmaz
   // (defter tüzel kişide, bkz. docs/muhasebe/MOTOR-PLAN.md). Belgelerden kendiliğinden
   // taslak fiş doğar; "Fişler" onay ekranı, defterler yalnız ONAYLI fişi basar.
+  { href: "/muhasebe/ozet", label: "Muhasebe Özeti", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/fisler", label: "Fişler", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/yevmiye", label: "Yevmiye Defteri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/kebir", label: "Kebir Defteri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/mizan", label: "Mizan", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/mali-tablolar", label: "Bilanço ve Gelir Tablosu", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/ay-sonu", label: "Ay Sonu İşlemleri", roles: ["ADMIN", BM, "ACCOUNTANT"] },
+  { href: "/muhasebe/demirbaslar", label: "Demirbaşlar", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/hesap-plani", label: "Hesap Planı", roles: ["ADMIN", BM, "ACCOUNTANT"] },
   { href: "/muhasebe/ayarlar", label: "Muhasebe Ayarları", roles: ["ADMIN", BM, "ACCOUNTANT"] },
 
@@ -253,11 +256,14 @@ export const NAV_GROUPS: Array<{ title: string; hrefs: string[] }> = [
   {
     title: "Muhasebe",
     hrefs: [
+      "/muhasebe/ozet",
       "/muhasebe/fisler",
       "/muhasebe/yevmiye",
       "/muhasebe/kebir",
       "/muhasebe/mizan",
       "/muhasebe/mali-tablolar",
+      "/muhasebe/ay-sonu",
+      "/muhasebe/demirbaslar",
       "/muhasebe/hesap-plani",
       "/muhasebe/ayarlar",
     ],

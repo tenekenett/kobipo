@@ -211,13 +211,6 @@ async function sil() {
           invoiceNo: inv.invoiceNo,
           createdBy: ACTOR,
         })
-        await tx.accountingEntry.deleteMany({
-          where: {
-            companyId: COMPANY_ID,
-            reference: inv.id,
-            referenceType: { in: ["INVOICE_AUTO", "INVOICE_AUTO_VAT"] },
-          },
-        })
         await tx.invoice.delete({ where: { id: inv.id } })
       },
       { timeout: 20000 },

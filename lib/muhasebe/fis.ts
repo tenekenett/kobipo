@@ -38,6 +38,15 @@ export type SatirRolu =
   | "GIDER" // faturasız gider (770)
   | "BAKIYE_KAPAMA" // 611 / 649
   | "KARSI" // karşı hesabı bilinmeyen satır (tek taraflı virman, kasasız ödeme)
+  // Türlü hareket (lib/finans/hareket-turu.ts) — gelir/gider değil, borç/alacak hesabı
+  | "VERGI_ODEME" // 360 (KDV ve diğer vergi ödemesi)
+  | "SGK_ODEME" // 361
+  | "AVANS" // 196 personel avansı
+  | "KREDI" // 300 banka kredisi
+  | "ORTAK" // 331 / 131
+  // Demirbaş (lib/muhasebe/amortisman.ts)
+  | "AMORTISMAN_GIDER" // 770 / 730 … (öğrenilir)
+  | "AMORTISMAN" // 257 / 268 birikmiş amortisman
   // Bordro
   | "BORDRO_GIDER"
   | "BORDRO_SGK"
@@ -129,6 +138,11 @@ export const TAHMIN_ROLLERI: ReadonlySet<SatirRolu> = new Set<SatirRolu>([
   "BAKIYE_KAPAMA",
   "BORDRO_GIDER",
   "ACILIS_FARK",
+  // Kısa mı uzun vadeli mi (300/400), ortak hesabı mı sermaye mi (331/131/500) — müşavir bilir.
+  "KREDI",
+  "ORTAK",
+  // Genel yönetim mi üretim mi (770/730/760) — demirbaşın kullanıldığı yer.
+  "AMORTISMAN_GIDER",
 ])
 
 /**

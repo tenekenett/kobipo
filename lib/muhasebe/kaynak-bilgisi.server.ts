@@ -15,6 +15,8 @@ export async function kaynakBilgisi(tip: string, id: string | null): Promise<Kay
   if (tip === "MANUAL") return { tip, ad: "Elle fiş", no: null, path: null }
   if (tip === "OPENING") return { tip, ad: "Açılış bakiyeleri", no: null, path: null }
   if (tip === "CLOSING") return { tip, ad: "Dönem kapanışı", no: null, path: null }
+  if (tip === "KDV_MAHSUP") return { tip, ad: "Aylık KDV mahsubu", no: id, path: "/muhasebe/ay-sonu" }
+  if (tip === "STOK_MALIYET") return { tip, ad: "Aylık satılan malın maliyeti", no: id, path: "/muhasebe/ay-sonu" }
   if (!id) return null
   const silinmis = { tip, ad: "Silinmiş kayıt", no: null, path: null }
 
@@ -97,6 +99,12 @@ export async function kaynakBilgisi(tip: string, id: string | null): Promise<Kay
       const k = await prisma.financialAccount.findUnique({ where: { id }, select: { name: true } })
       if (!k) return silinmis
       return { tip, ad: `Açılış bakiyesi · ${k.name}`, no: null, path: "/finans/kanallar" }
+    }
+    case "DEPRECIATION": {
+      const [demirbasId, yil] = [id.slice(0, id.lastIndexOf(":")), id.slice(id.lastIndexOf(":") + 1)]
+      const a = await prisma.fixedAsset.findUnique({ where: { id: demirbasId }, select: { name: true } })
+      if (!a) return silinmis
+      return { tip, ad: `Amortisman · ${a.name}`, no: yil, path: "/muhasebe/demirbaslar" }
     }
   }
   return { tip, ad: tip, no: null, path: null }

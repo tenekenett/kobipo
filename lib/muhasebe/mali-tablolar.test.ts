@@ -127,3 +127,32 @@ describe("dönem kapanışı", () => {
     expect(p2.hatalar.some((h) => h.startsWith("632 alt hesaplı"))).toBe(true)
   })
 })
+
+describe("tablo notları", () => {
+  it("bilanço farkı hesapsız satırlardan geliyorsa hata sayılmaz", async () => {
+    const { tabloNotlari } = await import("./mali-tablolar")
+    // Kira 300 hesapsız (borç) taslakta: kasa alacaklandı, gider satırı mizana girmedi.
+    const m = mizan({ "100": [1000, 300], "500": [0, 1000] })
+    const b = bilancoKur(m)
+    const n = tabloNotlari({ bilanco: b, bilancoMizani: m, donemMizani: m, hesapsiz: { borc: 300, alacak: 0, fisSayisi: 1 }, onayliFis: 0, taslakFis: 2 })
+    expect(b.aktifToplam - b.pasifToplam).toBe(-300)
+    expect(n.farkHesapsizdan).toBe(true)
+    expect(n.dengeHatasi).toBe(false)
+  })
+
+  it("açıklanamayan fark gerçek hatadır", async () => {
+    const { tabloNotlari } = await import("./mali-tablolar")
+    const m = mizan({ "100": [1000, 300], "500": [0, 1000] })
+    const n = tabloNotlari({ bilanco: bilancoKur(m), bilancoMizani: m, donemMizani: m, hesapsiz: null, onayliFis: 2, taslakFis: 0 })
+    expect(n.dengeHatasi).toBe(true)
+  })
+
+  it("stok var, satış var, maliyet yok → brüt kâr uyarısı", async () => {
+    const { tabloNotlari } = await import("./mali-tablolar")
+    const m = mizan(ORNEK)
+    const n = tabloNotlari({ bilanco: bilancoKur(m), bilancoMizani: m, donemMizani: m, hesapsiz: null, onayliFis: 5, taslakFis: 0 })
+    expect(n.smmEksik).toEqual({ stok: 500, satis: 1000 })
+    const kapanmis = mizan({ ...ORNEK, "621": [500, 0], "153": [500, 500] })
+    expect(tabloNotlari({ bilanco: bilancoKur(kapanmis), bilancoMizani: kapanmis, donemMizani: kapanmis, hesapsiz: null, onayliFis: 5, taslakFis: 0 }).smmEksik).toBe(null)
+  })
+})

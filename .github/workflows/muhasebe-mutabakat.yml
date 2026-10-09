@@ -1,0 +1,41 @@
+name: Muhasebe gece mutabakatı
+
+# Kurulu her muhasebe defterinde fişleri kaynak kayıtlarıyla eşitler (yazarken bildirmeyen
+# seyrek yollar ve açılış fişi). Uç: app/api/muhasebe/cron/mutabakat
+# (kural lib/muhasebe/gece-mutabakati.server.ts). Günde bir: 03:23 TSİ (00:23 UTC) — saat
+# başı GitHub'ın en yoğun anı. Kota: ~30 dk/ay (fatura-eposta işiyle birlikte 2.000 dk altında).
+# Sır: CRON_SECRET (fatura-eposta işiyle aynı). Log yalnız sayıları basar.
+
+on:
+  schedule:
+    - cron: "23 0 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: muhasebe-mutabakat
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  mutabakat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Mutabakatı tetikle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          URL: https://www.kobipo.com/api/muhasebe/cron/mutabakat
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET tanımlı değil (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          code=$(curl -sS -o yanit.json -w '%{http_code}' --max-time 90 \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" "$URL" || echo "000")
+          echo "HTTP $code"
+          jq -c '.' yanit.json 2>/dev/null || true
+          if [ "$code" != "200" ]; then
+            echo "::error::Mutabakat HTTP $code döndü — ayrıntı Vercel loglarında ([muhasebe-gece])."
+            exit 1
+          fi

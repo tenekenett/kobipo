@@ -56,7 +56,91 @@ toplamından 1–3 kuruş sapıyordu; (3) bir kasa hareketi başka firmanın kas
 (veri tutarsızlığı, tek kayıt: Demo Firma'nın 720 TL'lik tahsilatı Reypo Medya'nın "ana"
 kasasında) — fiş kasa satırını hesapsız bırakıp "Gözden geçir"e düşürür.
 
-### ▶ DEVAM — başka bilgisayarda (güncel: 2026-10-05 akşam)
+### ▶ DEVAM — 2026-10-09 eksik turu (EN GÜNCEL — main'e gönderildi, kalanlar başka bilgisayarda)
+
+Kullanıcı (muhasebeci değil) ekranları "karışık", cetvelleri "sağlıklı çalışmıyor" buldu. Ölçüm
+(Reypo): 353 fişin hiçbiri onaylı değildi → mali tablolar sıfır; taslak dahil mizanda 56 hesapsız
+satır (46'sı gider — E2E'nin BIRAK koşularından kalan 770.01/02/03 "TEST" alt hesapları 770'i alt
+hesaplı yapmıştı); Reypo'da 12,3 milyar TL'lik "asdas" çeki gibi anlamsız test verisi. Kodda hesap
+hatası yok (bilanço farkı = hesapsız satır toplamı). Eksik listesi A/B/C/D; kullanıcı planı: **A + B + D
+sırayla → başka bir firmanın projesiyle kıyas → EN SON müşavire çıkış (C: Luca/Zirve ya da e-Defter)**.
+
+| # | Eksik | Durum |
+|---|---|---|
+| A1 | Muhasebe Özeti — yapılacaklar + bu yılın rakamları + sözlük | **yazıldı** `/muhasebe/ozet`, `lib/muhasebe/ozet.ts` (saf) + `ozet.server.ts` |
+| A2 | Mali tablolar boş/denk değil/brüt kâr şişkin görünürken nedenini söylemiyor | **yazıldı** `?taslak=1` ön izleme, `tabloNotlari` (farkHesapsizdan, dengeHatasi, smmEksik) |
+| A3 | İki bilanço (Raporlar ↔ Muhasebe) | **yazıldı** Raporlar bilanço ve kâr/zararda "yönetim raporu" notu |
+| A4 | Terimler açıklamasız | **yazıldı** `components/muhasebe/ekran-aciklamasi.tsx` (her ekranda kapanabilir kutu + `MUHASEBE_SOZLUGU`) |
+| B1 | Vergi/SGK ödemesi 770'e düşüyor (gider çift, 360/361 kapanmıyor) | **yazıldı** `Transaction.purpose` (KDV, TAX, SGK, ADVANCE, LOAN, PARTNER) — `lib/finans/hareket-turu.ts`; finans formunda "İşlem türü" |
+| B2 | Personel avansı kaydı yok (196 eksi) | **yazıldı** personel kartı → Avanslar (`lib/personel/avans*.ts`, `/api/personel/avans`), bordro formunda açık avans önerisi, açılışta 196 |
+| B3 | Aylık KDV mahsubu elle | **yazıldı, E2E'de gerçek mahsup yazıldı** — `/muhasebe/ay-sonu?sekme=kdv`, `lib/muhasebe/kdv-mahsup*.ts` (onaylı fiş, sırayla, yalnız son ay geri alınır, vergi raporuyla karşılaştırma) |
+| B4 | Satılan malın maliyeti yalnız yıl sonu | **yazıldı** — `/muhasebe/ay-sonu` (varsayılan sekme), `lib/muhasebe/stok-maliyeti*.ts`: ay sonu stok değeri (miktar × `resolveUnitCostsAsOf`, AVCO tarih sınırlı) ile 153 farkı → B 621 · A 153 (eksi olabilir: iade, sayım fazlası). Başlangıçtaki stok açılış fişine 153 olarak girer; kapanış ekranı Kobipo'nun 31 Aralık stok değerini önerir. Stok hareketi yoksa "gerekmez" (yıl sonu sayım) |
+| B5 | Kredi / ortak / demirbaş-amortisman | **yazıldı** kredi 300, ortak 331/131 (purpose); `FixedAsset` + `/muhasebe/demirbaslar` + yıl sonu amortisman (DEPRECIATION, `amortisman.ts`), başlangıç öncesi demirbaş açılışa |
+| B6 | Döviz (cari döviz, kur farkı, dövizli fatura ödemesi) | **yazıldı** — cari TL tutulur: dövizli fatura ve kasasız ödemesi FATURA KURUYLA (`lib/cari/doviz.ts`, SQL `doviz-sql.ts`) altı yerde (liste, iki kart ucu, ekstre, yaşlandırma, `invoiceBalanceEffect`/arşiv, `bakiye-asof`); ödeme kasaya TL (tutar × ödeme kuru, verilmezse fatura kuru) — eskiden döviz tutarı TL gibi yazılıyordu; finans hareketinin faturalara dağıtımı TL'den fatura kuruyla döviz ödemeye çevrilir. Kur farkı carinin bakiyesinde görünür kalır (bakiye kapama / kur farkı faturasıyla kapanır); yaşlandırma eksi kalan farkı kalem açmaz. Dövizli hesaptan fatura ödemesi reddedilir. Canlıda dövizli fatura 0 (2026-10-09) |
+| B7 | Carisiz çek hesapsız | **yazıldı** formda uyarı (zorunlu yapılmadı: okutma/hızlı giriş cari bilmeden evrak açıyor); fişte karşı hesap seçilir |
+| D1 | Gece mutabakatı | **yazıldı** — `lib/muhasebe/gece-mutabakati.server.ts`, uç `/api/muhasebe/cron/mutabakat`, `.github/workflows/muhasebe-mutabakat.yml` (günde bir, 00:23 UTC, `CRON_SECRET`) |
+| D2 | Eski `accounting_entries` (3 test kaydı) | **kaldırıldı** — model ve fatura silmedeki silme kodu gitti; migrasyon `20261009000002_eski_muhasebe_kayitlari.sql` **DEPLOY'DAN SONRA** uygulanır (canlıdaki eski kod fatura silerken tabloya yazıyor) |
+| D3 | Demo Firma'nın 720 TL tahsilatı Reypo'nun "ana" banka hesabında (tek kayıt) | kullanıcı onayı bekliyor: hareket + ödeme Demo Firma'nın Kasa'sına taşınır, iki bakiye ±720 |
+
+**Migrasyonlar:**
+- `20261009000001_hareket_turu_demirbas.sql` — **CANLIDA** (kullanıcı uyguladı, 2026-10-09; kolonlar
+  ve `fixed_assets` + RLS doğrulandı). `transactions.purpose`, `transactions."employeeId"` (FK NO
+  ACTION), `fixed_assets`.
+- `20261009000002_eski_muhasebe_kayitlari.sql` — **UYGULANMADI, DEPLOY'DAN SONRA** uygulanır:
+  `accounting_entries`'i düşürür; canlıdaki eski kod fatura silerken o tablodan satır siliyor.
+
+**Doğrulama durumu (2026-10-09 akşam, main'e gönderilirken):**
+- `tsc` temiz; birim testleri geçiyor (`lib/muhasebe` 110, ilgili paketler 686, `lib` 2017+).
+- Uçtan uca `scripts/test-muhasebe.mjs` migrasyondan sonra **100/101**: B1 (SGK 361, kredi 300,
+  kâr/zarar bilgi satırı), B2 (avans 196), B3 (KDV mahsubu GERÇEKTEN yazıldı, 391/191 kapandı, geri
+  alındı), B5 (amortisman 7.500, demirbaş silinince taslak kalktı). Tek kalan beklenti hatasıydı
+  (açılış o adımda onaylıydı → "belge değişti" işaretlenir); betikte düzeltildi, **düzeltme koşulmadı**.
+- Canlı tutarlılık `npm run test:canli -- lib/cari/bakiye-tutarlilik` B6 değişikliklerinden sonra
+  **geçti** (çıkış 0; ayrıntılı çıktı okunmadı).
+- **Koşulmayanlar:** B4'ün uçtan uca adımı (7d — betiğe yazıldı), B6'nın ödeme yazma yolu (dövizli
+  fatura canlıda yok; elle/E2E sınanmadı), D1 gece mutabakatı ucu, Prisma istemcisi
+  `AccountingEntry` kaldırıldıktan sonra YENİDEN ÜRETİLMEDİ (dev sunucusu dosyayı kilitliyordu).
+
+**▶ YENİ BİLGİSAYARDA İLK ADIMLAR**
+1. `git pull` → `npx prisma generate` (şemadan `AccountingEntry` kalktı, `purpose`/`fixed_assets` eklendi).
+2. `npx tsc --noEmit` ve `npx vitest run lib`.
+3. `npm run dev` + `MUHASEBE_SIFIRLA=1 TEST_BASE_URL=http://localhost:3000 node scripts/test-muhasebe.mjs`
+   (Reypo; ~10 dk; 7d satılan malın maliyeti ve 8e düzeltmesi ilk kez koşacak).
+4. Canlı (salt okur): `npm run test:canli -- lib/muhasebe/defter-tutarlilik` (yeni kaynaklar —
+   türlü hareket, amortisman — mizan ↔ cari/kasa eşitliğini bozmamalı) ve
+   `npm run test:canli -- lib/cari/bakiye-tutarlilik`.
+5. Ekranları gözle (masaüstü + 390 px): `/muhasebe/ozet`, `/muhasebe/ay-sonu` (iki sekme),
+   `/muhasebe/demirbaslar`, `/muhasebe/mali-tablolar?taslak=1`, finans "Yeni İşlem" → İşlem türü,
+   personel kartı → Avanslar, Maaş formu → açık avans önerisi, dövizli fatura → Ödemeler (kur alanı).
+
+**▶ YAPILACAKLAR (sırayla)**
+1. Yukarıdaki doğrulamalar; çıkan hatayı düzelt.
+2. **D3 — kullanıcı kararı:** Demo Firma'nın 720 TL tahsilatı (`transactions.id = cmsw0jy3q0025rrot6tjlewcu`,
+   ödeme `cms0l591k0016qgqflfqxvcft`) Reypo'nun "ana" banka hesabında (`cmq8jznr9000141bn35fh8vlh`).
+   Öneri: hareket + ödeme Demo Firma'nın Kasa'sına (`cmu48lupw000138fhzt61yr5m`) taşınır, iki bakiye
+   ±720. Canlı veri yazar — kullanıcı onayıyla.
+3. **Reypo test artıkları — kullanıcı kararı:** 9 anlamsız çek (biri 12,3 milyar TL "asdas") ve
+   açıklamasız 2.000.000 TL gelir (`cmranwhyj00023auqn5zvhmpw`). Çek & Senet ekranından ya da
+   uygulamanın silme uçlarıyla (kasa bakiyesi geri yazılsın diye). Bu oturumda canlıdan silen betik
+   otomatik izin denetleyicisince reddedildi.
+4. Deploy → hemen ardından `20261009000002` uygulanır.
+5. Bilinen sınırlar (karar gerekirse): yaşlandırma eksi kalan kur farkını kalem açmaz (cari bakiyesinde
+   görünür); dövizli hesaptan fatura ödemesi yok; amortismanda kıst (binek oto) yok; stok hareketinin
+   tarihi `createdAt` (geç girilen belge maliyeti sonraki aya kaydırır).
+6. Plan sonrası (kullanıcı): **başka bir firmanın projesiyle kıyas** → en son **müşavire çıkış**
+   (C: Luca/Zirve aktarımı ya da e-Defter — karar yok). "Hedef kullanıcı" sorusu (sahip sade görünüm /
+   müşavir tam ekran) cevapsız.
+
+**Reypo:** kullanıcı "istediğin gibi kullan" dedi. Son E2E temizlikle bitti (modül kapalı, fiş yok,
+TEST hesapları silindi).
+
+Kararlar (2026-10-09): avans yalnız personel tarafından verilir (finans formu çalışan listesi okusaydı
+maaş bilgisi açılırdı); KDV ödemesi, kredi ve ortak hareketi kâr/zarar, gelir-gider, harcamalar ve
+finansal özette SAYILMAZ (bilgi satırı), vergi/SGK/avans nakit esaslı raporlarda gider kalır;
+türlü hareket cariye/faturaya bağlanamaz; KDV mahsubu ve kapanış fişleri Fişler'den geri alınamaz
+(kendi ekranlarından).
+
+### ▶ DEVAM — başka bilgisayarda (2026-10-05 akşam)
 
 **Durum:** modül kodda var, SATIŞTA KAPALI (fiyat kalemi `module:accounting` pasif, 42/42
 firmada `accounting` kapalı). Kullanıcı kararı: önce zayıflıklar, sonra geliştirme; pilot

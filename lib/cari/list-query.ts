@@ -10,6 +10,8 @@
  * `paginate: false` (varsayılan) tüm satırları döndürür; export bunu kullanır.
  */
 
+// Dövizli fatura cariye fatura kuruyla girer (lib/cari/doviz.ts).
+import { faturaKuruSql } from "@/lib/cari/doviz-sql"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { trFoldAnyLike, trLikePattern } from "@/lib/db/tr-search"
@@ -160,7 +162,7 @@ async function queryCustomerList(options: CariListOptions): Promise<CariListResu
         -- İADE, ait olduğu ailenin TERS İŞARETLİSİDİR: satış iadesi müşterinin
         -- borcunu azaltır. Ayrı bir CTE yerine aynı toplama negatif girmesi,
         -- aşağıdaki bakiye formülünü hiç değiştirmeden doğru sonucu verir.
-        SELECT i."customerId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
+        SELECT i."customerId", SUM((CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) * ${faturaKuruSql("i")}) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_customers pc ON pc.id = i."customerId"
         WHERE (i.type = 'SALES'
@@ -171,7 +173,7 @@ async function queryCustomerList(options: CariListOptions): Promise<CariListResu
       payment_totals AS (
         -- İade faturasına bağlı ödeme = müşteriye yapılan GERİ ÖDEME; tahsilatın
         -- tersidir, bu yüzden negatif toplanır.
-        SELECT inv."customerId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
+        SELECT inv."customerId", SUM((CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) * ${faturaKuruSql("inv")}) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_customers pc ON pc.id = inv."customerId"
@@ -185,7 +187,7 @@ async function queryCustomerList(options: CariListOptions): Promise<CariListResu
       -- borcumuzdur ve alacağı azaltır (aynı cari hem müşteri hem tedarikçi olabilir).
       -- Detay endpoint'iyle (customers/[id]) birebir aynı mantık.
       purchase_totals AS (
-        SELECT i."customerId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
+        SELECT i."customerId", SUM((CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) * ${faturaKuruSql("i")}) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_customers pc ON pc.id = i."customerId"
         WHERE (i.type = 'PURCHASE'
@@ -194,7 +196,7 @@ async function queryCustomerList(options: CariListOptions): Promise<CariListResu
         GROUP BY i."customerId"
       ),
       purchase_payment_totals AS (
-        SELECT inv."customerId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
+        SELECT inv."customerId", SUM((CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) * ${faturaKuruSql("inv")}) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_customers pc ON pc.id = inv."customerId"
@@ -376,7 +378,7 @@ async function querySupplierList(options: CariListOptions): Promise<CariListResu
       ),
       invoice_totals AS (
         -- Alış iadesi bizim borcumuzu azaltır → aynı toplama negatif girer.
-        SELECT i."supplierId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
+        SELECT i."supplierId", SUM((CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) * ${faturaKuruSql("i")}) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
         WHERE (i.type = 'PURCHASE'
@@ -385,7 +387,7 @@ async function querySupplierList(options: CariListOptions): Promise<CariListResu
         GROUP BY i."supplierId"
       ),
       payment_totals AS (
-        SELECT inv."supplierId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
+        SELECT inv."supplierId", SUM((CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) * ${faturaKuruSql("inv")}) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"
@@ -398,7 +400,7 @@ async function querySupplierList(options: CariListOptions): Promise<CariListResu
       -- MAHSUP: bu tedarikçiye kayıtlı SATIŞ faturalarının tahsil edilmemiş kısmı
       -- onun bize borcudur ve bizim borcumuzu azaltır (detay endpoint'iyle aynı mantık).
       sales_totals AS (
-        SELECT i."supplierId", SUM(CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) AS total_amount_sum
+        SELECT i."supplierId", SUM((CASE WHEN i.type = 'RETURN' THEN -i."totalAmount" ELSE i."totalAmount" END) * ${faturaKuruSql("i")}) AS total_amount_sum
         FROM invoices i
         INNER JOIN paged_suppliers ps ON ps.id = i."supplierId"
         WHERE (i.type = 'SALES'
@@ -407,7 +409,7 @@ async function querySupplierList(options: CariListOptions): Promise<CariListResu
         GROUP BY i."supplierId"
       ),
       sales_payment_totals AS (
-        SELECT inv."supplierId", SUM(CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) AS payment_amount_sum
+        SELECT inv."supplierId", SUM((CASE WHEN inv.type = 'RETURN' THEN -ip.amount ELSE ip.amount END) * ${faturaKuruSql("inv")}) AS payment_amount_sum
         FROM invoice_payments ip
         INNER JOIN invoices inv ON inv.id = ip."invoiceId"
         INNER JOIN paged_suppliers ps ON ps.id = inv."supplierId"

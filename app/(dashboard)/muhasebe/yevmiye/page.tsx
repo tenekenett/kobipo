@@ -18,6 +18,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
  * Yevmiye defteri — onaylanmış fişler tarih sırasıyla. Madde numarası yılın tamamında
@@ -74,6 +75,13 @@ export default function YevmiyePage() {
         baslik="Yevmiye Defteri"
         aciklama="Onaylanmış fişler tarih sırasıyla. Taslak fişler deftere girmez — Fişler ekranından onaylanır."
       />
+      <EkranAciklamasi anahtar="yevmiye">
+        <p>
+          Yevmiye defteri işletmenin <strong>günlüğüdür</strong>: onaylanan her fiş tarih sırasıyla, madde numarası verilerek yazılır. Her
+          maddede hangi hesabın borçlandığı, hangisinin alacaklandığı ve tutarı görünür; iki taraf her zaman eşittir.
+        </p>
+        <p>Vergi mevzuatında tutulması zorunlu defterlerden biridir; muhasebeciniz bu listeye bakarak kayıtları kontrol eder.</p>
+      </EkranAciklamasi>
       <DonemSecici />
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       {veri && (

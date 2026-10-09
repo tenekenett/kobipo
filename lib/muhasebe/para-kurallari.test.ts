@@ -302,3 +302,45 @@ describe("cari virman, bordro, açılış bakiyeleri", () => {
     ])
   })
 })
+
+describe("türlü hareket (vergi, SGK, avans, kredi, ortak)", () => {
+  it("SGK ödemesi gider değil: B 361 · A banka, emin", () => {
+    const f = hareketFisi(hareket({ tip: "EXPENSE", hesap: banka, tur: "SGK", kategori: "SGK" }), BOS_ESLESME)
+    expect(ozet(f)).toEqual(["B 361 500", "A 102@finans:b1 500"])
+    expect(hazir(f).emin).toBe(true)
+    expect(hazir(f).aciklama).toContain("SGK prim ödemesi")
+  })
+
+  it("vergi ödemesi 360'a, öğrenme anahtarı kategoriyle (muhtasar → 360.02)", () => {
+    const f = hareketFisi(hareket({ tip: "EXPENSE", hesap: banka, tur: "TAX", kategori: "Muhtasar" }), {
+      ...BOS_ESLESME,
+      ogrenilen: { "odeme:vergi:muhtasar": "360.02" },
+    })
+    expect(ozet(f)).toEqual(["B 360.02 500", "A 102@finans:b1 500"])
+    expect(hazir(f).satirlar[0].anahtarlar).toEqual(["odeme:vergi:muhtasar"])
+  })
+
+  it("KDV ödemesi 360", () => {
+    expect(ozet(hareketFisi(hareket({ tip: "EXPENSE", tur: "KDV" }), BOS_ESLESME))).toEqual(["B 360 500", "A 100@finans:k1 500"])
+  })
+
+  it("personel avansı 196, açıklamada çalışan", () => {
+    const f = hareketFisi(hareket({ tip: "EXPENSE", tur: "ADVANCE", avansPersonel: { id: "e1", ad: "Ayşe Kaya" } }), BOS_ESLESME)
+    expect(ozet(f)).toEqual(["B 196 500", "A 100@finans:k1 500"])
+    expect(hazir(f).satirlar[0].aciklama).toBe("Personel avansı verildi · Ayşe Kaya")
+    expect(hazir(f).emin).toBe(true)
+  })
+
+  it("kredi kullanımı A 300, ödemesi B 300 — vade müşavirce seçilir (emin değil)", () => {
+    const giris = hareketFisi(hareket({ tip: "INCOME", hesap: banka, tur: "LOAN" }), BOS_ESLESME)
+    expect(ozet(giris)).toEqual(["B 102@finans:b1 500", "A 300 500"])
+    expect(hazir(giris).emin).toBe(false)
+    const cikis = hareketFisi(hareket({ tip: "EXPENSE", hesap: banka, tur: "LOAN" }), BOS_ESLESME)
+    expect(ozet(cikis)).toEqual(["B 300 500", "A 102@finans:b1 500"])
+  })
+
+  it("ortaktan gelen 331, ortağa ödenen 131", () => {
+    expect(ozet(hareketFisi(hareket({ tip: "INCOME", tur: "PARTNER" }), BOS_ESLESME))).toEqual(["B 100@finans:k1 500", "A 331 500"])
+    expect(ozet(hareketFisi(hareket({ tip: "EXPENSE", tur: "PARTNER" }), BOS_ESLESME))).toEqual(["B 131 500", "A 100@finans:k1 500"])
+  })
+})

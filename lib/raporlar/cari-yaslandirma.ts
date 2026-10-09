@@ -5,6 +5,7 @@
  * ekranın aynı vade/gecikme/performans sayılarını üretmesi için tek kaynak.
  */
 
+import { faturaKuru, tlKarsiligi } from "@/lib/cari/doviz"
 import { prisma } from "@/lib/db/prisma"
 import { kaydedildigindeKesinlesir } from "@/lib/invoice/status-label"
 import {
@@ -569,6 +570,8 @@ export async function computeCariAging(
           date: true,
           dueDate: true,
           totalAmount: true,
+          currency: true,
+          exchangeRate: true,
           payments: { select: { amount: true, paymentDate: true, transactionId: true } },
         },
       },
@@ -613,6 +616,8 @@ export async function computeCariAging(
           date: true,
           dueDate: true,
           totalAmount: true,
+          currency: true,
+          exchangeRate: true,
           payments: { select: { amount: true, paymentDate: true, transactionId: true } },
         },
       },
@@ -625,6 +630,19 @@ export async function computeCariAging(
 
   // Çek/senet kredileri (iade/protesto hariç): cariId→tutar. Serbest tahsilat gibi
   // açık faturaları FIFO kapatır.
+  // DÖVİZLİ FATURA fatura kuruyla TL'ye çevrilir (lib/cari/doviz.ts): toplam ve ödemeleri
+  // (döviz) × kur. Bundan sonraki her hesap TL'dir — cari bakiyesiyle aynı eksen. Tahsilat
+  // günün kuruyla TL girdiği için aradaki kur farkı havuza düşer; eksi kalan fark (müşteri
+  // fatura kurundan az TL ödedi) kalem açmaz, cari bakiyesinde görünür.
+  for (const party of [...customers, ...suppliers]) {
+    for (const inv of party.invoices as Array<{ totalAmount: unknown; currency: string | null; exchangeRate: unknown; payments: Array<{ amount: unknown }> }>) {
+      const kur = faturaKuru(inv)
+      if (kur === 1) continue
+      inv.totalAmount = tlKarsiligi(inv.totalAmount, inv)
+      for (const p of inv.payments) p.amount = tlKarsiligi(p.amount, inv)
+    }
+  }
+
   const [customerCheckCredit, supplierCheckCredit, customerCheckEvents] = await Promise.all([
     getCheckNoteCreditMap("customer", companyId),
     getCheckNoteCreditMap("supplier", companyId),

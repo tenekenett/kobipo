@@ -565,6 +565,12 @@ Transaction, çek/senet, açılış bakiyesi ve **cari virman fişi** (`lib/cari
 2026-09-23). İşaret: müşteri bakiyesi borç − alacak, tedarikçi bakiyesi alacak − borç
 (aynalı); ekstre her ikisinde borç − alacak yürütür.
 
+- **Cari TL tutulur; dövizli fatura FATURA KURUYLA girer** (2026-10-09, `lib/cari/doviz.ts`
+  saf, `doviz-sql.ts` ham SQL): toplam ve kasasız ödemesi × kur; kasaya bağlı ödeme hareketin
+  TL tutarıyla (ödeme kasaya tutar × ödeme kuru yazılır — eskiden döviz tutarı TL gibi
+  yazılıyordu). Kur farkı carinin bakiyesinde görünür kalır. Altı yerin hepsi bu kuraldan
+  geçer; yeni bir fatura toplamı okuyan yer de `faturaKuru`/`faturaKuruSql` kullanır.
+
 - Virman kasaya dokunmaz; kâr/zarar, nakit akışı ve gelir-gidere BİLEREK girmez.
   Karşı cari isteğe bağlıdır (tek taraflı fiş = karşılıksız dekont). Düzenleme yok;
   fiş iki bacağıyla birlikte silinir. Bacağı olan cari silinemez (FK NO ACTION,
@@ -651,8 +657,43 @@ onaylar. Plan ve durum: `docs/muhasebe/MOTOR-PLAN.md`; kod `lib/muhasebe/`.
   kuruş farkı gelir/gider satırına katılır, KDV'ye dokunulmaz.
 - Dönem kapanışı (`kapanis.ts`) fişleri onaylı yazar ve `lockedUntil`le kilitler;
   kilitli döneme yeni fiş açılmaz, mutabakat bunu "kilitli döneme düşen" diye sayar.
+- **Defterden türeyen fişler** (KDV mahsubu `KDV_MAHSUP`, kapanış `CLOSING`) kaynak kayıt değil
+  defterin kendisinden doğar: kullanıcı başlatır, ONAYLI yazılır, Fişler'den geri ALINAMAZ
+  (`fisGeriAl` reddeder) — yalnız kendi ekranından ve yalnız en son ay/yıl. Senkron onlara dokunmaz.
+  KDV mahsubu aylar SIRAYLA, ayın KDV'li taslağı kalmadan yapılır (`kdv-mahsup.ts`).
+- **Ay sonu işlemleri** (`/muhasebe/ay-sonu`): satılan malın maliyeti (`stok-maliyeti.ts`: ay sonu
+  stok değeri = miktar × tarih sınırlı AVCO `resolveUnitCostsAsOf`; 153 ile farkı B 621 · A 153) ve
+  KDV mahsubu. İkisi de defterden türeyen aylık fiştir (yukarıdaki madde). Başlangıçtaki stok
+  açılış fişine 153 olarak girer; açılış girmezse ilk ayın maliyeti eksi çıkar.
+- **Gece mutabakatı** (`gece-mutabakati.server.ts`, GitHub Actions günde bir): bildirmeyen seyrek
+  yazma yollarının fişi sabaha hazırdır.
+- **Demirbaş** (`FixedAsset`, `/muhasebe/demirbaslar`) her yıl için 31 Aralık tarihli amortisman
+  taslağı doğurur (kaynak `DEPRECIATION`, id `<demirbaş>:<yıl>`, `amortisman.ts`); başlangıçtan
+  önce alınan demirbaş açılış fişine maliyet + birikmiş amortismanla girer.
+- Ekranlar muhasebeci OLMAYANA da yazılır: her muhasebe ekranında `EkranAciklamasi` kutusu, giriş
+  ekranı `/muhasebe/ozet` (yapılacaklar sırası `ozet.ts`). Boş/denk değil görünen tablo NEDENİNİ
+  söyler (`tabloNotlari`) — "bu bir hatadır, desteğe bildirin" yalnız açıklanamayan farkta.
 - Ölçüm (uçtan uca): `node scripts/test-muhasebe.mjs` (dev sunucu açık, Reypo Medya;
   açtığı her şeyi siler; önceki kurulum kaldıysa `MUHASEBE_SIFIRLA=1`).
+
+## Kasa/banka hareketinin TÜRÜ: vergi/SGK borç kapatır, kredi/ortak gelir-gider değildir
+
+`Transaction.purpose` (2026-10-09, kural tek yerde: `lib/finans/hareket-turu.ts`). Boş = olağan
+gelir/gider (kategoriyle). Türler: `KDV`, `TAX` (diğer vergi), `SGK`, `ADVANCE` (personel avansı,
+`employeeId` zorunlu), `LOAN` (kredi), `PARTNER` (ortak).
+
+- Muhasebede vergi/SGK ödemesi GİDER DEĞİLDİR: gideri bordro tahakkuku ve KDV mahsubu yazdı, ödeme
+  360/361'i kapatır. Avans 196, kredi 300, ortak 331 (giriş) / 131 (çıkış).
+- **Kâr/zarar, gelir-gider, harcamalar ve finansal özet KDV/LOAN/PARTNER'ı SAYMAZ**
+  (`NOT_TRANSFER_OR_SETTLEMENT_WHERE` içinde `KARA_GIREN_TUR_WHERE`; ham SQL'de
+  `KARA_GIREN_TUR_SQL("t")`). Kâr/zarar onları `nonOperating` bilgi satırında gösterir. Vergi, SGK
+  ve avans nakit esaslı raporlarda gider KALIR (maaşın parçası). Yeni bir kâr raporu yazan bu
+  süzgeci de uygular; yönetim bilançosu kredi/ortak/avansı ayrı satırda gösterir (`bilanco-ozet.ts`).
+- Türlü hareket cariye ya da faturaya BAĞLANAMAZ (`hareketTuruHatasi`); bağlansaydı cari
+  bakiyesinin altı yerinde ayrıca ele alınması gerekirdi.
+- **Avans yalnız personel tarafından** (kart → Avanslar, `/api/personel/avans`, yetki `/personel/maas`):
+  finans formu çalışan listesini okusaydı maaş bilgisi finansçılara açılırdı. Açık avans = verilen −
+  geri alınan − bordrolarda düşülen (`lib/personel/avans.ts`); avansı olan çalışan silinmez.
 
 ## Alış faturası: ödeme durumu + "çalışan cebinden ödedi" defteri
 

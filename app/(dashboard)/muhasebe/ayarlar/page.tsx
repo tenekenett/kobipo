@@ -21,6 +21,7 @@ import {
 } from "@/components/muhasebe/ortak"
 import { MutabakatIlerlemesi, ozetMetni, useMutabakat } from "@/components/muhasebe/mutabakat"
 import { DonemKapanisi } from "@/components/muhasebe/donem-kapanisi"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
  * Muhasebe Ayarları — kurulum (başlangıç tarihi → Tekdüzen planı → açılış fişi →
@@ -78,6 +79,16 @@ export default function MuhasebeAyarlariPage() {
         baslik="Muhasebe Ayarları"
         aciklama="Belgelerinizden kendiliğinden yevmiye fişi üretilir; siz eksik hesabı seçip onaylarsınız. Defter firmanın (tüzel kişinin) defteridir — şubelerin belgeleri ana firmanın defterine yazılır."
       />
+      <EkranAciklamasi anahtar="ayarlar">
+        <p>
+          <strong>Başlangıç tarihi</strong> defterin hangi günden itibaren Kobipo&apos;da tutulacağıdır (genelde mali yılın başı, 1 Ocak).
+          O günden önceki her şey tek bir <strong>açılış fişinde</strong> toplanır; sonraki her belgenin fişi tek tek hazırlanır.
+        </p>
+        <p>
+          <strong>Dönem kapanışı</strong> yıl sonunda yapılır: gelir ve giderler kâr/zarara aktarılır, yıl kilitlenir ve ertesi yılın açılış
+          fişi kendiliğinden yazılır. Bunu genellikle muhasebeciniz yapar.
+        </p>
+      </EkranAciklamasi>
       <ReadOnlyBanner />
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       {mutabakat.hata && <Uyari ton="kirmizi">{mutabakat.hata}</Uyari>}

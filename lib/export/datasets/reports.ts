@@ -569,6 +569,21 @@ export async function buildProfitLossDataset(params: ProfitLossExportParams): Pr
             },
           ]
         : []),
+      // Kredi, ortak ve KDV hareketleri de toplamlara girmez (lib/finans/hareket-turu.ts).
+      ...(report.nonOperating.income > 0 || report.nonOperating.expense > 0
+        ? [
+            {
+              title: "Kredi, ortak ve KDV hareketleri (toplamlara dahil değil)",
+              sheetName: "Kredi-Ortak-KDV",
+              columns,
+              totals: null,
+              rows: [
+                { label: "Giriş (kredi kullanımı, ortaktan gelen)", amount: report.nonOperating.income },
+                { label: "Çıkış (anapara, ortağa ödenen, KDV ödemesi)", amount: report.nonOperating.expense },
+              ],
+            },
+          ]
+        : []),
     ],
     generatedAt: new Date(),
   }

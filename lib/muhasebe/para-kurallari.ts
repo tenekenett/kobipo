@@ -12,6 +12,8 @@
  *              | personel (335, masraf iadesi / maaş ödemesi) | hesaplar arası virman
  *              (karşı kasa) | carisiz faturanın ödemesi (ortak perakende alt hesabı)
  *              | faturasız gelir 649 / gider 770 (kategoriye göre ÖĞRENİLİR)
+ *              | TÜRLÜ hareket (lib/finans/hareket-turu.ts): vergi 360, SGK 361, avans 196,
+ *                kredi 300, ortak 331 (giriş) / 131 (çıkış) — gelir/gider DEĞİL
  *   Kasasız ödeme        bakiye kapama (611 / 649), çalışan cebinden (335), eski kayıt
  *   Çek / senet          alınan: B 101/121 · A cari     verilen: B cari · A 103/321
  *   Çek cirosu           B tedarikçi (seçilir) · A 101
@@ -23,6 +25,7 @@
  * ekran sayar). Fatura ödemesi faturanın kuruyla çevrilir (fatura fişiyle aynı kur).
  */
 
+import { HAREKET_TURU_BILGISI, type HareketTuru } from "@/lib/finans/hareket-turu"
 import {
   altSatir,
   fisKur,
@@ -80,6 +83,10 @@ export type HareketGirdisi = {
   virmanKaynagi?: FinansHesabi | null
   /** Hareket virman bacağı mı (tip TRANSFER ya da TRANSFER: referanslı giriş). */
   virman?: boolean
+  /** Hareketin türü (vergi, SGK, avans, kredi, ortak); null = olağan gelir/gider. */
+  tur?: HareketTuru | null
+  /** Avansın çalışanı (tur ADVANCE). */
+  avansPersonel?: Kayit | null
   /**
    * Hareketin kasası BAŞKA bir firmanın (veri tutarsızlığı — canlıda 1 kayıt,
    * 2026-10-04). Kasa satırı o firmanın alt hesabına yazılamaz: hesapsız kalır ve
@@ -202,6 +209,10 @@ export function hareketFisi(h: HareketGirdisi, eslesme: HesapEslesmeleri): FisSo
       }),
     )
     aciklama ||= alis ? "Carisiz alış ödemesi" : "Perakende satış tahsilatı"
+  } else if (h.tur) {
+    const s = turSatiri(h.tur, giris, karsiTaraf, tutar, h.kategori, h.avansPersonel ?? null, eslesme)
+    satirlar.push(s)
+    aciklama ||= [s.aciklama, h.kategori?.trim()].filter(Boolean).join(" · ")
   } else {
     // Faturasız gelir/gider: hesap KATEGORİYE göre öğrenilir (kira → 770.01 …).
     const kategori = anahtarParcasi(h.kategori)
@@ -220,6 +231,43 @@ export function hareketFisi(h: HareketGirdisi, eslesme: HesapEslesmeleri): FisSo
   }
 
   return fisKur({ tarih: istanbulGunu(h.tarih), aciklama: `${aciklama}${dovizNotu}`, tur, satirlar })
+}
+
+/**
+ * Türlü hareketin karşı satırı. Vergi/SGK ödemesi borcu KAPATIR (gider değil: gideri bordro
+ * tahakkuku ve KDV mahsubu yazdı); avans personelden alacak, kredi ve ortak borç/alacak
+ * hesabıdır. Öğrenme anahtarı türe (vergi/kredide kategoriye de) bağlıdır: müşavir 360'ı
+ * "360.01 KDV / 360.02 Muhtasar" diye ayırdıysa kategori bunu taşır.
+ */
+function turSatiri(
+  tur: HareketTuru,
+  giris: boolean,
+  taraf: Taraf,
+  tutar: number,
+  kategori: string | null | undefined,
+  personel: Kayit | null,
+  eslesme: HesapEslesmeleri,
+): FisSatiri {
+  const k = anahtarParcasi(kategori)
+  const ad = HAREKET_TURU_BILGISI[tur].yonAdi?.[giris ? "INCOME" : "EXPENSE"] ?? HAREKET_TURU_BILGISI[tur].ad
+  const tanim: Record<HareketTuru, { rol: FisSatiri["rol"]; kod: string; anahtarlar: string[] }> = {
+    KDV: { rol: "VERGI_ODEME", kod: "360", anahtarlar: ["odeme:kdv"] },
+    TAX: { rol: "VERGI_ODEME", kod: "360", anahtarlar: [`odeme:vergi:${k}`] },
+    SGK: { rol: "SGK_ODEME", kod: "361", anahtarlar: ["odeme:sgk"] },
+    ADVANCE: { rol: "AVANS", kod: "196", anahtarlar: ["odeme:avans"] },
+    LOAN: { rol: "KREDI", kod: "300", anahtarlar: [`odeme:kredi:${k}`] },
+    PARTNER: { rol: "ORTAK", kod: giris ? "331" : "131", anahtarlar: [giris ? "odeme:ortak:giris" : "odeme:ortak:cikis"] },
+  }
+  const t = tanim[tur]
+  return {
+    taraf,
+    tutar,
+    rol: t.rol,
+    ...hesapSec(eslesme, t.anahtarlar, t.kod),
+    oneriKodu: t.kod,
+    anahtarlar: t.anahtarlar,
+    aciklama: tur === "ADVANCE" && personel ? `${ad} · ${personel.ad}` : ad,
+  }
 }
 
 // ── Kasaya bağlanmamış fatura ödemesi ────────────────────────────────────────

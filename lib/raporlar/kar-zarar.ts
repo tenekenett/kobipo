@@ -16,6 +16,7 @@
 import { prisma } from "@/lib/db/prisma"
 import { PURCHASE_RETURN_WHERE, SALES_RETURN_WHERE } from "@/lib/cari/invoice-direction"
 import { CARI_ADVANCE_WHERE, NOT_TRANSFER_OR_SETTLEMENT_WHERE, NO_CARI_WHERE } from "@/lib/finans/nakit-hareket"
+import { KARA_GIRMEYEN_TURLER } from "@/lib/finans/hareket-turu"
 import { periodWhere, resolvePeriodBounds } from "./date-range"
 
 export type ProfitLossResult = {
@@ -39,6 +40,11 @@ export type ProfitLossResult = {
    * Gerekçe: lib/finans/nakit-hareket.ts → NO_CARI_WHERE.
    */
   advances: { income: number; expense: number }
+  /**
+   * Gelir/gider OLMAYAN türlü hareketler (KDV ödemesi, kredi, ortak — lib/finans/
+   * hareket-turu.ts). Toplamlara girmez; avanslar gibi ayrı bilgi satırıdır.
+   */
+  nonOperating: { income: number; expense: number }
 }
 
 export async function computeProfitLoss(args: {
@@ -51,7 +57,7 @@ export async function computeProfitLoss(args: {
   const date = periodWhere(bounds)
   const postedInvoice = { status: { notIn: ["CANCELLED", "CONVERTED"] }, date }
 
-  const [salesInvoices, purchaseInvoices, otherIncome, otherExpense, cariAdvances, salesReturns, purchaseReturns] =
+  const [salesInvoices, purchaseInvoices, otherIncome, otherExpense, cariAdvances, salesReturns, purchaseReturns, turlu] =
     await Promise.all([
     // Gelirler (Satış faturaları)
     prisma.invoice.aggregate({
@@ -120,6 +126,12 @@ export async function computeProfitLoss(args: {
       where: { companyId, ...PURCHASE_RETURN_WHERE(), ...postedInvoice },
       _sum: { netAmount: true },
     }),
+    // Gelir/gider OLMAYAN türlü hareketler — toplamlara girmez, bilgi satırı.
+    prisma.transaction.groupBy({
+      by: ["type"],
+      where: { companyId, type: { in: ["INCOME", "EXPENSE"] }, date, purpose: { in: [...KARA_GIRMEYEN_TURLER] } },
+      _sum: { amount: true },
+    }),
   ])
 
   const revenue = {
@@ -156,5 +168,9 @@ export async function computeProfitLoss(args: {
     otherExpenses,
     netProfit: grossProfit - otherExpenses,
     advances,
+    nonOperating: {
+      income: Number(turlu.find((r) => r.type === "INCOME")?._sum.amount || 0),
+      expense: Number(turlu.find((r) => r.type === "EXPENSE")?._sum.amount || 0),
+    },
   }
 }

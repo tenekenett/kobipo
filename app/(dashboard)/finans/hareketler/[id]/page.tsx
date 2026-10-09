@@ -1,5 +1,6 @@
 "use client"
 
+import { hareketTuruAdi } from "@/lib/finans/hareket-turu"
 import { useEffect, useState } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import Link from "next/link"
@@ -19,6 +20,8 @@ interface TransactionDetail {
   currency: string
   description?: string | null
   reference?: string | null
+  /** Hareket türü (lib/finans/hareket-turu.ts) — vergi, SGK, avans, kredi, ortak. */
+  purpose?: string | null
   createdAt: string
   createdByUser?: { name: string | null; email: string } | null
   account: { id: string; name: string; type: string; bankName?: string | null }
@@ -251,6 +254,7 @@ export default function FinansHareketDetayPage() {
             </Field>
             <Field label="Para Birimi">{tx.currency || "TRY"}</Field>
             {tx.reference ? <Field label="Referans">{tx.reference}</Field> : null}
+            {hareketTuruAdi(tx.purpose, tx.type) ? <Field label="İşlem türü">{hareketTuruAdi(tx.purpose, tx.type)}</Field> : null}
             <Field label="Açıklama" full>
               {tx.description?.trim() ? tx.description : <span className="text-muted-foreground">-</span>}
             </Field>

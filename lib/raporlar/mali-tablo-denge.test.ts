@@ -251,3 +251,42 @@ describe("dönem sınırları", () => {
     expect(bounds.endExclusive.toISOString()).toBe("2026-09-06T00:00:00.000Z")
   })
 })
+
+describe("bilanço — kredi, ortak, personel avansı (2026-10-09)", () => {
+  it("kredi parası kasada + borçta; ortak bakiyesi yönüne göre; avans varlık — denge tutar", () => {
+    const sheet = composeBalanceSheet({
+      cashAndBanks: 100_000 + 20_000 - 5_000,
+      customerBalances: [],
+      supplierBalances: [],
+      checksReceived: 0,
+      checksGiven: 0,
+      inventory: 0,
+      retainedEarnings: 0,
+      loans: 100_000,
+      partnerBalance: 20_000,
+      employeeAdvances: [5_000, -200],
+    })
+    expect(sheet.liabilities.loans).toBe(100_000)
+    expect(sheet.liabilities.partnerPayables).toBe(20_000)
+    expect(sheet.assets.employeeAdvances).toBe(5_000)
+    // Fazla mahsup edilen avans (eksi) personele borçtur, kırpılmaz.
+    expect(sheet.liabilities.employeePayables).toBe(200)
+    expect(sheet.total).toBe(sheet.totalLiabilitiesAndEquity)
+    expect(sheet.equity.adjustments).toBe(-200)
+  })
+
+  it("ortağa fazla ödenen ortaktan alacaktır", () => {
+    const sheet = composeBalanceSheet({
+      cashAndBanks: 0,
+      customerBalances: [],
+      supplierBalances: [],
+      checksReceived: 0,
+      checksGiven: 0,
+      inventory: 0,
+      retainedEarnings: 0,
+      partnerBalance: -3_000,
+    })
+    expect(sheet.assets.partnerReceivables).toBe(3_000)
+    expect(sheet.liabilities.partnerPayables).toBe(0)
+  })
+})

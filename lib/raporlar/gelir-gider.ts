@@ -15,6 +15,8 @@
  * Kırılım aritmetiği `gelir-gider-kirilim.ts`te (saf, testli).
  */
 
+import { Prisma } from "@prisma/client"
+import { KARA_GIREN_TUR_SQL } from "@/lib/finans/hareket-turu"
 import { prisma } from "@/lib/db/prisma"
 import { isPurchaseReturn, isSalesReturn } from "@/lib/cari/invoice-direction"
 import { periodWhere, resolvePeriodBounds } from "./date-range"
@@ -90,6 +92,8 @@ async function uninvoicedGroups(
       AND t."type" = ${type}
       AND t."date" >= ${start} AND t."date" < ${endExclusive}
       AND (t."reference" IS NULL OR (t."reference" NOT LIKE 'TRANSFER:%' AND t."reference" NOT LIKE 'CEK:%' AND t."reference" NOT LIKE 'SENET:%' AND t."reference" NOT LIKE 'CALISAN:%'))
+        -- KDV ödemesi, kredi ve ortak hareketi gelir/gider değildir (lib/finans/hareket-turu.ts).
+        AND ${Prisma.raw(KARA_GIREN_TUR_SQL("t"))}
       AND NOT EXISTS (
         SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
       )

@@ -18,6 +18,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
  * Kebir (hesap dökümü) — bir hesabın ve alt hesaplarının onaylı hareketleri,
@@ -87,6 +88,13 @@ export default function KebirPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <SayfaBasligi baslik="Kebir Defteri" aciklama="Hesap dökümü: devir, onaylı hareketler ve yürüyen bakiye. Alt hesapların hareketleri de dahildir." />
+      <EkranAciklamasi anahtar="kebir">
+        <p>
+          Kebir, <strong>tek bir hesabın dökümüdür</strong> — banka ekstresi gibi okunur. Örneğin 102 seçerseniz bankanızın, 120.01.0003
+          seçerseniz bir müşterinizin defterdeki bütün hareketlerini ve her satırdan sonraki bakiyeyi görürsünüz.
+        </p>
+        <p>Mizanda bir hesabın üstüne tıklamak da sizi buraya getirir.</p>
+      </EkranAciklamasi>
       <div className="flex flex-wrap items-center gap-3">
         <div className="w-full max-w-md">
           <SearchSelect options={secenekler} value={hesap} onChange={hesapSec} placeholder="Hesap seçin (kod ya da ad)" emptyText="Eşleşen hesap yok" />

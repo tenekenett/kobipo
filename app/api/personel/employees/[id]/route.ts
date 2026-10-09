@@ -146,7 +146,7 @@ export const DELETE = withApiErrors(async function DELETE(
   const id = await resolveSlugId("employee", rawId, await resolveCompanyId(new URL(request.url).searchParams.get("companyId")))
   const existing = await prisma.employee.findUnique({
     where: { id },
-    include: { _count: { select: { payrolls: true, ledgerEntries: true } } },
+    include: { _count: { select: { payrolls: true, ledgerEntries: true, advances: true } } },
   })
   if (!existing) return NextResponse.json({ error: "Employee not found" }, { status: 404 })
   await ensureCompanyWrite(existing.companyId)
@@ -163,6 +163,13 @@ export const DELETE = withApiErrors(async function DELETE(
   if (existing._count.ledgerEntries > 0) {
     return NextResponse.json(
       { error: "Masraf kaydı (cebinden ödenen fatura / geri ödeme) olan personel silinemez. Bunun yerine 'İşten Çıkar' kullanın." },
+      { status: 409 },
+    )
+  }
+  // Avans da kasa hareketidir (Transaction.employeeId, FK NO ACTION).
+  if (existing._count.advances > 0) {
+    return NextResponse.json(
+      { error: "Avans kaydı olan personel silinemez. Bunun yerine 'İşten Çıkar' kullanın." },
       { status: 409 },
     )
   }

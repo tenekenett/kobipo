@@ -23,6 +23,7 @@
  * bunları nakit sayarsa olmayan parayı akışa yazar.
  */
 
+import { KARA_GIREN_TUR_WHERE } from "@/lib/finans/hareket-turu"
 import { prisma } from "@/lib/db/prisma"
 
 /**
@@ -116,9 +117,10 @@ export const NOT_EMPLOYEE_REIMBURSEMENT_WHERE = {
 
 /**
  * Faturasız GELİR/GİDER sayımı için `where` parçası: virman bacakları, çek/senet
- * tahsil hareketleri ve çalışana masraf iadeleri dışlanır. `NOT_TRANSFER_WHERE` ile
- * aynı NULL uyarısı geçerli; `AND` taşıdığı için zaten `AND` içeren bir `where`a
- * spread edilmez.
+ * tahsil hareketleri, çalışana masraf iadeleri ve gelir/gider OLMAYAN türlü hareketler
+ * (KDV ödemesi, kredi, ortak — lib/finans/hareket-turu.ts) dışlanır. `NOT_TRANSFER_WHERE`
+ * ile aynı NULL uyarısı geçerli; `AND` taşıdığı için zaten `AND` içeren bir `where`a
+ * spread edilmez. Ham SQL karşılığı: `KARA_GIREN_TUR_SQL`.
  */
 export const NOT_TRANSFER_OR_SETTLEMENT_WHERE = {
   AND: [
@@ -126,6 +128,7 @@ export const NOT_TRANSFER_OR_SETTLEMENT_WHERE = {
     { OR: [{ reference: null }, { NOT: { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.CHECK } } }] },
     { OR: [{ reference: null }, { NOT: { reference: { startsWith: CHECK_SETTLEMENT_PREFIXES.PROMISSORY_NOTE } } }] },
     NOT_EMPLOYEE_REIMBURSEMENT_WHERE,
+    KARA_GIREN_TUR_WHERE,
   ],
 }
 

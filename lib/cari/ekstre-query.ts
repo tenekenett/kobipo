@@ -7,6 +7,7 @@
  * fonksiyonu çağırıyor.
  */
 
+import { tlKarsiligi } from "@/lib/cari/doviz"
 import { prisma } from "@/lib/db/prisma"
 import { cariRelationVisibilityWhere, cariVisibilityWhere, type CariVisibility } from "@/lib/cari/visibility"
 import {
@@ -210,11 +211,14 @@ const borcTarafinda = (inv: DirectionalInvoice) => receivableSign(inv) > 0 || pa
  * tablo +116.062); yedincisi eksik fatura ve eksik ödeme satırı birbirini
  * götürdüğü için tesadüfen tutuyordu.
  */
-export function faturaSatirYonu(inv: DirectionalInvoice & { totalAmount: unknown }): {
+export function faturaSatirYonu(
+  inv: DirectionalInvoice & { totalAmount: unknown; currency: string | null; exchangeRate: unknown },
+): {
   debit: number
   credit: number
 } {
-  const tutar = Number(inv.totalAmount)
+  // Dövizli fatura cariye fatura kuruyla TL girer (lib/cari/doviz.ts).
+  const tutar = tlKarsiligi(inv.totalAmount, inv)
   return {
     debit: borcTarafinda(inv) ? tutar : 0,
     credit: payableSign(inv) > 0 || receivableSign(inv) < 0 ? tutar : 0,
@@ -252,7 +256,7 @@ export function faturaOdemesiSatirlari<
     employeeLedger?: { employee: { firstName: string; lastName: string } } | null
   },
 >(
-  inv: DirectionalInvoice & { invoiceNo: string; eDocumentNo: string | null; payments: P[] },
+  inv: DirectionalInvoice & { invoiceNo: string; eDocumentNo: string | null; currency: string | null; exchangeRate: unknown; payments: P[] },
   startDate?: string | null,
   endDate?: string | null,
 ): Array<EkstreEntry & { type: "INVOICE_PAYMENT" | "WRITE_OFF"; data: P }> {
@@ -279,8 +283,9 @@ export function faturaOdemesiSatirlari<
         id: p.id,
         date: p.paymentDate,
         description: `${kapama ? "Bakiye kapama / iskonto" : "Fatura ödemesi"} ${inv.eDocumentNo || inv.invoiceNo}${kimOdedi}`,
-        debit: invoiceIsDebit ? 0 : Number(p.amount),
-        credit: invoiceIsDebit ? Number(p.amount) : 0,
+        // Kasasız ödeme dövizli faturada da fatura kuruyla kapanır (lib/cari/doviz.ts).
+        debit: invoiceIsDebit ? 0 : tlKarsiligi(p.amount, inv),
+        credit: invoiceIsDebit ? tlKarsiligi(p.amount, inv) : 0,
         balance: 0,
         reference: p.reference ?? (inv.eDocumentNo || inv.invoiceNo),
         data: p,
@@ -386,6 +391,8 @@ export async function fetchEkstre(options: EkstreOptions): Promise<EkstreResult>
         invoiceNo: true,
         eDocumentNo: true,
         totalAmount: true,
+        currency: true,
+        exchangeRate: true,
         // Ödemeler: faturanın üzerine doğrudan işlenenler (Faturalar → Ödemeler)
         // cari işlemi ÜRETMEZ; ekstreye girmezlerse fatura tam tutarıyla borç
         // yazılı kalır ve bakiye ödenmemiş gibi görünür.

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 import { ReadOnlyBanner, WriteAction } from "@/components/dashboard/write-guard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -140,6 +141,18 @@ export default function HesapPlaniPage() {
         baslik="Hesap Planı"
         aciklama="Tekdüzen hesap planı ve alt hesaplarınız. Cari, kasa/banka ve personel alt hesapları fişler üretilirken kendiliğinden açılır."
       />
+      <EkranAciklamasi anahtar="hesap-plani">
+        <p>
+          Hesap planı, kayıtların yazıldığı <strong>hesapların listesidir</strong>. Türkiye&apos;de bütün işletmeler aynı numaraları kullanır
+          (Tekdüzen): <strong>1</strong> ile başlayanlar varlıklar (100 Kasa, 102 Bankalar, 120 Alıcılar), <strong>3</strong> kısa vadeli
+          borçlar (320 Satıcılar, 360 Ödenecek vergiler), <strong>5</strong> öz kaynaklar, <strong>6</strong> gelir tablosu (600 Satışlar),{" "}
+          <strong>7</strong> giderlerdir (770 Genel yönetim giderleri).
+        </p>
+        <p>
+          Her müşteri, tedarikçi, kasa ve personel için Kobipo alt hesabı kendisi açar. Giderlerinizi ayrı izlemek isterseniz (ör. 770 altında
+          Kira, Elektrik) muhasebecinizle alt hesap açabilirsiniz; alt hesabı olan bir hesaba doğrudan kayıt yazılmaz.
+        </p>
+      </EkranAciklamasi>
       <ReadOnlyBanner />
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
       <div className="flex flex-wrap items-center gap-2">

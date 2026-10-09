@@ -14,6 +14,8 @@
  * fonksiyonunu 12 kez çağırmak 72 sorgu ederdi; seri iki toplu sorguyla çıkar.
  */
 
+import { Prisma } from "@prisma/client"
+import { KARA_GIREN_TUR_SQL } from "@/lib/finans/hareket-turu"
 import { prisma } from "@/lib/db/prisma"
 import { cashBalanceBefore } from "@/lib/finans/nakit-hareket"
 import { computeCariAging, type AgingAccount, type AgingTotals } from "./cari-yaslandirma"
@@ -162,6 +164,8 @@ async function monthlySeries(companyId: string, until: Date): Promise<OverviewMo
       WHERE t."companyId" = ${companyId}
         AND t."date" >= ${first} AND t."date" < ${until}
         AND (t."reference" IS NULL OR (t."reference" NOT LIKE 'TRANSFER:%' AND t."reference" NOT LIKE 'CEK:%' AND t."reference" NOT LIKE 'SENET:%' AND t."reference" NOT LIKE 'CALISAN:%'))
+        -- KDV ödemesi, kredi ve ortak hareketi gelir/gider değildir (lib/finans/hareket-turu.ts).
+        AND ${Prisma.raw(KARA_GIREN_TUR_SQL("t"))}
         AND NOT EXISTS (
           SELECT 1 FROM "invoice_payments" p WHERE p."transactionId" = t.id
         )

@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import { CompanyLink } from "@/components/dashboard/company-link"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import type { ProfitLossResult } from "@/lib/raporlar/kar-zarar"
 import { toDateInput } from "@/lib/format"
 
@@ -19,6 +21,9 @@ type ProfitLossReport = ProfitLossResult
 export default function KarZararPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const { selectedCompany } = useDashboardCompany()
+  // Muhasebe defteri tutan firmada resmî gelir tablosu defterdedir (bilanço ekranıyla aynı not).
+  const defterVar = Boolean(selectedCompany && !(selectedCompany.disabledModules ?? []).includes("accounting"))
   const [report, setReport] = useState<ProfitLossReport | null>(null)
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
@@ -85,9 +90,19 @@ export default function KarZararPage() {
       <Card>
         <CardHeader>
           <CardTitle>Kar/Zarar Tablosu</CardTitle>
-          <CardDescription>Gelir ve gider analizi</CardDescription>
+          <CardDescription>Gelir ve gider analizi — kayıtlarınızdan anlık kurulur, muhasebe onayı beklemez.</CardDescription>
         </CardHeader>
         <CardContent>
+          {defterVar && (
+            <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50/70 px-3 py-2 text-sm text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-100">
+              Bu bir yönetim raporudur. Resmî gelir tablonuz{" "}
+              <CompanyLink href="/muhasebe/mali-tablolar" className="font-semibold underline">
+                Muhasebe → Bilanço ve Gelir Tablosu
+              </CompanyLink>
+              &apos;ndadır; yalnız onaylanmış fişlerden kurulur ve giderleri tahakkuk ettiği ay sayar (ör. bordro ödendiği değil ait olduğu
+              ayda).
+            </p>
+          )}
           <div className="mb-6 flex flex-wrap items-end gap-4">
             <div className="space-y-2">
               <Label>Başlangıç Tarihi</Label>
@@ -200,6 +215,20 @@ export default function KarZararPage() {
                     <TableCell className="text-right text-muted-foreground tabular-nums">
                       {report.advances.income > 0 && <span className="block">tahsilat {formatCurrency(report.advances.income)}</span>}
                       {report.advances.expense > 0 && <span className="block">ödeme {formatCurrency(report.advances.expense)}</span>}
+                    </TableCell>
+                  </TableRow>
+                )}
+                {(report.nonOperating?.income > 0 || report.nonOperating?.expense > 0) && (
+                  <TableRow>
+                    <TableCell className="text-muted-foreground">
+                      Kredi, ortak ve KDV hareketleri
+                      <span className="block text-xs">
+                        Kredi kullanımı/anapara ödemesi, ortak parası ve KDV ödemesi gelir ya da gider değildir — toplamlara girmedi
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground tabular-nums">
+                      {report.nonOperating.income > 0 && <span className="block">giriş {formatCurrency(report.nonOperating.income)}</span>}
+                      {report.nonOperating.expense > 0 && <span className="block">çıkış {formatCurrency(report.nonOperating.expense)}</span>}
                     </TableCell>
                   </TableRow>
                 )}

@@ -520,6 +520,9 @@ export const PAGE_API_RULES: PageApiRule[] = [
   { prefix: "/api/muhasebe/mutabakat", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/fisler", "/muhasebe/ayarlar"] },
   { prefix: "/api/muhasebe/hesap-plani", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/hesap-plani", "/muhasebe/fisler"] },
   { prefix: "/api/muhasebe/ayarlar", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/ayarlar"] },
+  { prefix: "/api/muhasebe/kdv", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/ay-sonu"] },
+  { prefix: "/api/muhasebe/stok-maliyeti", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/ay-sonu"] },
+  { prefix: "/api/muhasebe/demirbaslar", pages: MUHASEBE_PAGES, writePages: ["/muhasebe/demirbaslar"] },
   // Dönem kapanışı defteri kilitler: yalnız Ayarlar yazar.
   { prefix: "/api/muhasebe/kapanis", pages: ["/muhasebe/ayarlar", "/muhasebe/mali-tablolar"], writePages: ["/muhasebe/ayarlar"] },
 
@@ -630,6 +633,13 @@ export const PAGE_API_RULES: PageApiRule[] = [
     // personel kartında; YAZMA kasadan çalışana para çıkarır — bordro ödemesiyle
     // aynı yetki (`/personel/maas`), "kartı düzenleyen maaş öder" olmasın.
     prefix: "/api/personel/masraf",
+    pages: ["/personel", "/personel/maas"],
+    writePages: ["/personel/maas"],
+  },
+  {
+    // Personel avansı (lib/personel/avans.server.ts): kasadan çalışana para çıkaran
+    // yol — masraf iadesi ve bordro ödemesiyle aynı yetki.
+    prefix: "/api/personel/avans",
     pages: ["/personel", "/personel/maas"],
     writePages: ["/personel/maas"],
   },

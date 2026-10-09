@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ExportButton } from "@/components/export/export-button"
+import { CompanyLink } from "@/components/dashboard/company-link"
+import { useDashboardCompany } from "@/components/dashboard/dashboard-company-provider"
 import type { BalanceSheetResult } from "@/lib/raporlar/bilanco"
 import { toDateInput } from "@/lib/format"
 
@@ -18,6 +20,9 @@ type BalanceSheet = BalanceSheetResult
 export default function BilancoPage() {
   const searchParams = useSearchParams()
   const companyId = searchParams.get("company")
+  const { selectedCompany } = useDashboardCompany()
+  // Muhasebe defteri tutan firmada iki bilanço yan yana durur; hangisinin ne olduğu söylenir.
+  const defterVar = Boolean(selectedCompany && !(selectedCompany.disabledModules ?? []).includes("accounting"))
   const [report, setReport] = useState<BalanceSheet | null>(null)
   const [asOfDate, setAsOfDate] = useState("")
   const [isLoading, setIsLoading] = useState(false)
@@ -79,9 +84,20 @@ export default function BilancoPage() {
       <Card>
         <CardHeader>
           <CardTitle>Bilanço</CardTitle>
-          <CardDescription>Varlık ve yükümlülük durumu</CardDescription>
+          <CardDescription>
+            Varlık ve yükümlülük durumu — kayıtlarınızdan (kasa, banka, cari, çek/senet, stok) anlık kurulur, muhasebe onayı beklemez.
+          </CardDescription>
         </CardHeader>
         <CardContent>
+          {defterVar && (
+            <p className="mb-4 rounded-xl border border-sky-200 bg-sky-50/70 px-3 py-2 text-sm text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/20 dark:text-sky-100">
+              Bu bir yönetim bilançosudur. Resmî Tekdüzen bilançonuz{" "}
+              <CompanyLink href="/muhasebe/mali-tablolar" className="font-semibold underline">
+                Muhasebe → Bilanço ve Gelir Tablosu
+              </CompanyLink>
+              &apos;ndadır; o yalnız onaylanmış muhasebe fişlerinden kurulur. Onay bekleyen fiş varken iki rakam farklı görünür.
+            </p>
+          )}
           <div className="mb-6 flex flex-wrap items-end gap-4">
             <div className="space-y-2">
               <Label>Tarih</Label>
@@ -146,6 +162,21 @@ export default function BilancoPage() {
                         <TableCell className="text-right">{formatCurrency(report.assets.employeeReceivables)}</TableCell>
                       </TableRow>
                     )}
+                    {report.assets.employeeAdvances > 0 && (
+                      <TableRow>
+                        <TableCell>
+                          Personel Avansları
+                          <span className="block text-xs text-muted-foreground">Verilmiş, bordrodan henüz düşülmemiş</span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.assets.employeeAdvances)}</TableCell>
+                      </TableRow>
+                    )}
+                    {report.assets.partnerReceivables > 0 && (
+                      <TableRow>
+                        <TableCell>Ortaklardan Alacaklar</TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.assets.partnerReceivables)}</TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell>Stoklar</TableCell>
                       <TableCell className="text-right">{formatCurrency(report.assets.inventory)}</TableCell>
@@ -187,6 +218,21 @@ export default function BilancoPage() {
                           <span className="block text-xs text-muted-foreground">Çalışanların cebinden ödediği masraflar</span>
                         </TableCell>
                         <TableCell className="text-right">{formatCurrency(report.liabilities.employeePayables)}</TableCell>
+                      </TableRow>
+                    )}
+                    {report.liabilities.loans !== 0 && (
+                      <TableRow>
+                        <TableCell>
+                          Banka Kredileri
+                          <span className="block text-xs text-muted-foreground">Kullanılan − ödenen anapara</span>
+                        </TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.liabilities.loans)}</TableCell>
+                      </TableRow>
+                    )}
+                    {report.liabilities.partnerPayables > 0 && (
+                      <TableRow>
+                        <TableCell>Ortaklara Borçlar</TableCell>
+                        <TableCell className="text-right">{formatCurrency(report.liabilities.partnerPayables)}</TableCell>
                       </TableRow>
                     )}
                     <TableRow className="bg-muted/50">

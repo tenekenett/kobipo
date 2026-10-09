@@ -50,6 +50,7 @@ interface Invoice {
   date: string
   dueDate?: string
   currency?: string
+  exchangeRate?: number | string | null
   isReceipt?: boolean
   customer?: { name: string }
   supplier?: { name: string }
@@ -125,6 +126,8 @@ export default function FaturaOdemelerPage() {
     employeeId: "",
     reference: "",
     notes: "",
+    // Dövizli faturada ödemenin kuru (1 birim = ? TL); boşsa fatura kuru (lib/finans/create-invoice-payment.ts).
+    exchangeRate: "",
   })
 
   // Çalışan cebinden ödeme yalnız TL alış faturasında (sunucu da aynı kuralı uygular).
@@ -245,6 +248,7 @@ export default function FaturaOdemelerPage() {
           employeeId: "",
           reference: "",
           notes: "",
+          exchangeRate: "",
         })
         fetchPayments()
         fetchInvoice()
@@ -333,12 +337,17 @@ export default function FaturaOdemelerPage() {
   const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount), 0)
   const remaining = invoice ? Number(invoice.totalAmount) - totalPaid : 0
 
+  // Fatura tutarları faturanın para birimindedir (dövizli faturada ₺ yazmak yanlıştı).
+  const paraBirimi = (invoice?.currency || "TRY").toUpperCase()
+  const dovizli = paraBirimi !== "TRY"
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("tr-TR", {
       style: "currency",
-      currency: "TRY",
+      currency: paraBirimi,
     }).format(amount)
   }
+  const odemeKuru = Number(String(formData.exchangeRate).replace(",", ".")) || Number(invoice?.exchangeRate) || 0
+  const kasayaTl = dovizli && odemeKuru > 0 ? Math.round(Number(formData.amount || 0) * odemeKuru * 100) / 100 : null
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("tr-TR")
@@ -587,7 +596,7 @@ export default function FaturaOdemelerPage() {
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="amount">Tutar *</Label>
+                  <Label htmlFor="amount">Tutar{dovizli ? ` (${paraBirimi})` : ""} *</Label>
                   <Input
                     id="amount"
                     type="number"
@@ -609,6 +618,24 @@ export default function FaturaOdemelerPage() {
                   />
                 </div>
               </div>
+              {dovizli && !isBakiyeKapama(formData.paymentMethod) && !isCalisanOdemesi(formData.paymentMethod) && (
+                <div className="space-y-2">
+                  <Label htmlFor="exchangeRate">Ödeme kuru (1 {paraBirimi} = ? TL)</Label>
+                  <Input
+                    id="exchangeRate"
+                    inputMode="decimal"
+                    value={formData.exchangeRate}
+                    placeholder={invoice?.exchangeRate ? `Fatura kuru: ${Number(invoice.exchangeRate).toLocaleString("tr-TR")}` : "Kuru girin"}
+                    onChange={(e) => setFormData({ ...formData, exchangeRate: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {kasayaTl != null
+                      ? `Kasaya/bankaya ${kasayaTl.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} TL yazılır. `
+                      : ""}
+                    Fatura kuruyla aradaki fark carinin bakiyesinde kur farkı olarak görünür.
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="paymentMethod">Ödeme Yöntemi *</Label>

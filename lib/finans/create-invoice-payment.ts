@@ -4,6 +4,7 @@
 // adisyon kapanışı ÖKC webhook'undan (oturumsuz) da yürüyebilsin — bkz.
 // lib/invoice/create-invoice.ts başlığı, lib/api/write-actor.ts, docs/okc/ASAMA1-KOBIPO.md A5.
 
+import { faturaKuru } from "@/lib/cari/doviz"
 import { NextResponse } from "next/server"
 import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { resolveCompanyId } from "@/lib/company/resolve-company"
@@ -246,6 +247,32 @@ export async function createInvoicePayment(
     const paidAt = paymentDate ? new Date(paymentDate) : new Date()
     const paidAmount = new Decimal(amount)
 
+    // DÖVİZLİ FATURA: ödeme tutarı faturanın para birimindedir (açık tutarla öyle
+    // karşılaştırıldı), kasaya ise TL girer — tutar × ödeme kuru (verilmezse fatura kuru).
+    // 2026-10-09'a kadar kasaya döviz tutarı TL gibi yazılıyordu (100 USD → kasaya 100 TL).
+    // Fatura kuruyla aradaki fark carinin bakiyesinde kur farkı olarak görünür kalır
+    // (lib/cari/doviz.ts). Dövizli hesaptan fatura ödemesi henüz yok: cari TL tutulur.
+    const dovizli = (invoice.currency || "TRY").toUpperCase() !== "TRY"
+    let kasaTutari = paidAmount
+    if (dovizli) {
+      const hesap = await prisma.financialAccount.findUnique({ where: { id: account.id }, select: { currency: true } })
+      if ((hesap?.currency || "TRY").toUpperCase() !== "TRY") {
+        return NextResponse.json(
+          { error: "Dövizli faturanın ödemesi TL kasa/banka hesabına yazılır (cari bakiyeleri TL tutulur)." },
+          { status: 400 },
+        )
+      }
+      const istenenKur = Number(String(body.exchangeRate ?? "").replace(",", "."))
+      const kur = istenenKur > 0 ? istenenKur : faturaKuru(invoice)
+      if (!(istenenKur > 0) && !(Number(invoice.exchangeRate) > 0)) {
+        return NextResponse.json(
+          { error: `${invoice.currency} faturanın kuru yok; ödemenin kurunu girin (1 ${invoice.currency} = ? TL).` },
+          { status: 400 },
+        )
+      }
+      kasaTutari = paidAmount.times(kur).toDecimalPlaces(2)
+    }
+
     /**
      * Tahsilat + KASA HAREKETİ tek gidişte.
      *
@@ -267,9 +294,11 @@ export async function createInvoicePayment(
           companyId,
           accountId: account.id,
           type: isSales ? "INCOME" : "EXPENSE",
-          amount: paidAmount,
-          currency: invoice.currency || "TRY",
-          description: `${isSales ? "Tahsilat" : "Ödeme"} — ${invoice.invoiceNo}`,
+          amount: kasaTutari,
+          currency: "TRY",
+          description: dovizli
+            ? `${isSales ? "Tahsilat" : "Ödeme"} — ${invoice.invoiceNo} (${paidAmount.toFixed(2)} ${invoice.currency})`
+            : `${isSales ? "Tahsilat" : "Ödeme"} — ${invoice.invoiceNo}`,
           date: paidAt,
           // Cari ekstrede faturanın borcunu KAPATAN satır budur; taraf
           // yazılmazsa fiş "ödenmemiş borç" gibi asılı kalır.
@@ -285,7 +314,7 @@ export async function createInvoicePayment(
       // tahsilat girilirse birini kaybediyordu.
       await db.financialAccount.update({
         where: { id: account.id },
-        data: { balance: { increment: isSales ? paidAmount : paidAmount.negated() } },
+        data: { balance: { increment: isSales ? kasaTutari : kasaTutari.negated() } },
       })
 
       return db.invoicePayment.create({

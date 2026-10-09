@@ -6,6 +6,7 @@ import { kapanisPlani, type KapanisFisi } from "@/lib/muhasebe/kapanis"
 import { fisNumaratoru } from "@/lib/muhasebe/senkron.server"
 import { planHaritasi } from "@/lib/muhasebe/hesap-plani.server"
 import { FisHatasi } from "@/lib/muhasebe/onay.server"
+import { stokDegeri } from "@/lib/muhasebe/stok-maliyeti.server"
 
 /**
  * DÖNEM KAPANIŞI — uygulama (plan: kapanis.ts).
@@ -38,7 +39,12 @@ export async function kapanisDurumu(ctx: Ctx, yil: number, kapanisStoku?: number
   if (ctx.ayar.startDate.getTime() < bas.getTime() && oncekiKapanmis === 0) {
     engeller.push(`Önce ${yil - 1} kapanmalı.`)
   }
-  const m = await mizan(ctx.defterId, { bas: null, bit: son })
+  const [m, kobipoStok] = await Promise.all([
+    mizan(ctx.defterId, { bas: null, bit: son }),
+    // Kobipo stok kayıtlarına göre 31 Aralık stok değeri — sayım alanının önerisi (aylık
+    // satılan mal maliyetiyle aynı değerleme; ay sonu fişleri yazıldıysa 153 bunu verir).
+    stokDegeri(ctx.sirketIds, new Date(Date.UTC(yil + 1, 0, 1) - 3 * 3_600_000)),
+  ])
   const plan = kapanisPlani({ yil, mizan: m, kapanisStoku: kapanisStoku ?? null })
   const stok153 = m.find((s) => s.kod === "153")
   return {
@@ -49,6 +55,7 @@ export async function kapanisDurumu(ctx: Ctx, yil: number, kapanisStoku?: number
     uyarilar: plan.uyarilar,
     netKar: plan.netKar,
     stok153: stok153 ? Math.round((stok153.bakiyeBorc - stok153.bakiyeAlacak) * 100) / 100 : 0,
+    kobipoStok: kobipoStok.urunSayisi > 0 ? kobipoStok.deger : null,
     fisler: plan.fisler.map((f) => ({
       anahtar: f.anahtar,
       aciklama: f.aciklama,

@@ -36,6 +36,17 @@ export type BalanceSheetInputs = {
   inventory: number
   /** Başlangıçtan bugüne kümülatif net kâr/zarar. */
   retainedEarnings: number
+  /**
+   * Türlü hareketler (lib/finans/hareket-turu.ts, 2026-10-09). Kâr/zarara girmezler;
+   * burada sayılmasalar kredi parası kasada görünür ama borcu "sermaye düzeltmesi"
+   * satırında kaybolurdu.
+   *   loans          kullanılan − ödenen kredi anaparası (+ borç)
+   *   partnerBalance ortaktan gelen − ortağa ödenen (+ ortağa borç, − ortaktan alacak)
+   *   employeeAdvances çalışan başına açık avans (+ personelden alacak)
+   */
+  loans?: number
+  partnerBalance?: number
+  employeeAdvances?: number[]
 }
 
 export type BalanceSheetSummary = {
@@ -45,6 +56,8 @@ export type BalanceSheetSummary = {
     checksReceived: number
     supplierAdvances: number
     employeeReceivables: number
+    employeeAdvances: number
+    partnerReceivables: number
     inventory: number
     total: number
   }
@@ -53,6 +66,8 @@ export type BalanceSheetSummary = {
     checksGiven: number
     customerAdvances: number
     employeePayables: number
+    loans: number
+    partnerPayables: number
     total: number
   }
   equity: {
@@ -76,6 +91,9 @@ export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSumm
     checksReceived: input.checksReceived,
     supplierAdvances: negatives(input.supplierBalances),
     employeeReceivables: negatives(employeeBalances),
+    // Avans bakiyesi kişi başına; eksi (fazla mahsup) kırpılmaz, personele borç olur.
+    employeeAdvances: positives(input.employeeAdvances ?? []),
+    partnerReceivables: round2(Math.max(-(input.partnerBalance ?? 0), 0)),
     inventory: input.inventory,
     total: 0,
   }
@@ -85,6 +103,8 @@ export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSumm
       assets.checksReceived +
       assets.supplierAdvances +
       assets.employeeReceivables +
+      assets.employeeAdvances +
+      assets.partnerReceivables +
       assets.inventory,
   )
 
@@ -92,11 +112,18 @@ export function composeBalanceSheet(input: BalanceSheetInputs): BalanceSheetSumm
     payables: positives(input.supplierBalances),
     checksGiven: input.checksGiven,
     customerAdvances: negatives(input.customerBalances),
-    employeePayables: positives(employeeBalances),
+    employeePayables: round2(positives(employeeBalances) + negatives(input.employeeAdvances ?? [])),
+    loans: round2(input.loans ?? 0),
+    partnerPayables: round2(Math.max(input.partnerBalance ?? 0, 0)),
     total: 0,
   }
   liabilities.total = round2(
-    liabilities.payables + liabilities.checksGiven + liabilities.customerAdvances + liabilities.employeePayables,
+    liabilities.payables +
+      liabilities.checksGiven +
+      liabilities.customerAdvances +
+      liabilities.employeePayables +
+      liabilities.loans +
+      liabilities.partnerPayables,
   )
 
   const equityTotal = round2(assets.total - liabilities.total)

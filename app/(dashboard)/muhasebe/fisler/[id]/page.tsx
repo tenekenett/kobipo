@@ -59,6 +59,9 @@ import {
  * bakiye olmadığı için hiç açılmamış açılış fişini elle satırlarıyla açar.
  */
 
+/** Defterden türeyen fişler kendi ekranından geri alınır (KDV mahsubu, dönem kapanışı). */
+const TURETILMIS = new Set(["KDV_MAHSUP", "STOK_MALIYET", "CLOSING"])
+
 type FisSatiri = {
   id: string
   taraf: "B" | "A"
@@ -435,7 +438,7 @@ function FisOdak({ id, companyId, sekme }: { id: string; companyId: string; sekm
                 </Button>
               </WriteAction>
             )}
-            {!taslak && (
+            {!taslak && !TURETILMIS.has(fis.kaynakTipi) && (
               <WriteAction>
                 <Button variant="outline" onClick={() => islem("geri-al")} disabled={mesgul || fis.kilitli}>
                   <RotateCcw className="mr-2 h-4 w-4" /> Onayı geri al

@@ -8,7 +8,8 @@
  *
  * Kaynaklar ve tarihleri (sınır DIŞLAYICI: `< end`):
  *   fatura            belge tarihi (`date`); iptal/dönüşmüş hariç, iade ve karşı
- *                     yönlü (mahsup) fatura kendi yönüyle
+ *                     yönlü (mahsup) fatura kendi yönüyle; dövizli fatura ve kasasız
+ *                     ödemesi FATURA KURUYLA TL (lib/cari/doviz.ts)
  *   kasasız ödeme     `paymentDate` (kasaya bağlı ödeme işlem üzerinden girer)
  *   cari işlemi       `date` (tahsilat/ödeme/avans)
  *   çek/senet         `issueDate` — bilançodaki portföy satırı da AYNI tarihle
@@ -30,6 +31,7 @@
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import type { CariKind } from "@/lib/cari/virman"
+import { faturaKuruSql } from "@/lib/cari/doviz-sql"
 
 export type CariBalanceAsOf = { id: string; balance: number }
 
@@ -84,7 +86,7 @@ function balanceSql(kind: CariKind, companyId: string, end: Date): Prisma.Sql {
               WHEN i.type = 'RETURN' THEN -1
               ELSE 0
             END
-          ) * (i."totalAmount" - COALESCE(pd.amount, 0))
+          ) * (i."totalAmount" - COALESCE(pd.amount, 0)) * ${faturaKuruSql("i")}
         ) AS v
       FROM invoices i
       INNER JOIN party ON party.id = i.${s.col}

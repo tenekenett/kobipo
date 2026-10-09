@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { ArrowLeft, CheckCheck, Link2, Loader2, RefreshCw } from "lucide-react"
 import { CompanyLink } from "@/components/dashboard/company-link"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 import { ReadOnlyBanner, WriteAction, useCanEditHere } from "@/components/dashboard/write-guard"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/use-toast"
@@ -159,7 +160,7 @@ export default function TopluEslemePage() {
       </CompanyLink>
       <SayfaBasligi
         baslik="Toplu hesap eşleme"
-        aciklama="Gözden geçir'deki fişlerin hesabı belli olmayan satırları, öğrenilecekleri kurala göre gruplandı: aynı tedarikçinin aynı KDV oranlı alışları, aynı gider kategorisi, bordro gideri… Her gruba bir hesap seçin; gruptaki bütün fişler tek seferde eşlenir. Seçim fişleri onayladığınızda öğrenilir ve sonraki belgeler kendiliğinden o hesaba düşer."
+        aciklama="Hesabı belli olmayan satırlar türlerine göre gruplandı (aynı tedarikçinin alışları, aynı gider kategorisi, bordro gideri…). Her gruba bir hesap seçin; gruptaki bütün fişler tek seferde eşlenir."
         sag={
           <Button variant="outline" onClick={() => void yukle()} disabled={yukleniyor || mesgul}>
             <RefreshCw className={cn("mr-2 h-4 w-4", yukleniyor && "animate-spin")} />
@@ -167,6 +168,17 @@ export default function TopluEslemePage() {
           </Button>
         }
       />
+      <EkranAciklamasi anahtar="eslesme">
+        <p>
+          Kobipo her belgeden bir muhasebe kaydı hazırlar ama bazı satırların <strong>hangi hesaba</strong> yazılacağını bilemez: bir alış
+          faturası kırtasiye gideri mi, demirbaş mı, satılacak mal mı? Bu ekranda aynı türden satırlar tek grupta toplanır; gruba bir hesap
+          seçmeniz o gruptaki bütün fişlere yazılır.
+        </p>
+        <p>
+          Seçiminiz fişleri <strong>onayladığınızda öğrenilir</strong>: aynı tedarikçiden gelen sonraki faturalar kendiliğinden o hesaba düşer.
+          Emin değilseniz grubu boş bırakın; muhasebecinize sorabilirsiniz.
+        </p>
+      </EkranAciklamasi>
       <ReadOnlyBanner />
       {hata && <Uyari ton="kirmizi">{hata}</Uyari>}
 

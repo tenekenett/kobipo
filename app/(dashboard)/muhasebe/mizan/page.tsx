@@ -16,6 +16,7 @@ import {
   DurumBekleniyor,
 } from "@/components/muhasebe/ortak"
 import { DonemSecici, useDonem } from "@/components/muhasebe/donem-secici"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
  * Mizan — hesap başına devir, dönem, toplam ve bakiye (plan §2.6). Yalnız onaylı
@@ -105,6 +106,17 @@ export default function MizanPage() {
         baslik="Mizan"
         aciklama="Onaylanmış fişlerden hesap başına devir, dönem hareketi ve bakiye. Hesaba tıklayınca kebir (hesap dökümü) açılır."
       />
+      <EkranAciklamasi anahtar="mizan">
+        <p>
+          Mizan bütün hesapların <strong>tek tablodaki özetidir</strong>: dönem başındaki devir, dönem içindeki borç ve alacak hareketleri
+          ve son bakiye. En alttaki borç toplamı alacak toplamına eşit olmalıdır — bu, defterin doğru tutulduğunun ilk kontrolüdür.
+        </p>
+        <p>
+          Muhasebeciler beyanname ve bilanço hazırlarken mizana bakar. Varsayılan görünüm ana hesaplardır (100 Kasa, 120 Alıcılar…);
+          &quot;Alt hesaplarla&quot; tek tek müşteri ve tedarikçi bakiyelerini gösterir. Onaylanmamış fişleri görmek için &quot;Taslaklar
+          dahil&quot;i açın.
+        </p>
+      </EkranAciklamasi>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <DonemSecici />
         <div className="flex flex-wrap items-center gap-2">

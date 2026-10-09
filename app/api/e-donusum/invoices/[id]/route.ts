@@ -769,14 +769,8 @@ export const DELETE = withApiErrors(async function DELETE(
           createdBy: user.id,
         })
 
-        // İlgili otomatik muhasebe fişlerini (AccountingEntry) sil (varsa).
-        await tx.accountingEntry.deleteMany({
-          where: {
-            companyId: invoice.companyId,
-            reference: invoice.id,
-            referenceType: { in: ["INVOICE_AUTO", "INVOICE_AUTO_VAT"] },
-          },
-        })
+        // Muhasebe fişi faturayla birlikte senkronla kalkar (taslak) ya da "belge değişti"
+        // işaretlenir (onaylı) — eski AccountingEntry tablosu 2026-10-09'da kaldırıldı.
 
         // Bu fatura bir gelen e-faturadan dönüştürülmüşse, kaynak kaydın bağlantısını
         // çöz → gelen e-fatura tekrar "Alış Faturasına Dönüştür" edilebilir hale gelsin.

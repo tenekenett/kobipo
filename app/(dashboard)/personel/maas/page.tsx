@@ -25,6 +25,7 @@ import { Calculator, Plus, RefreshCcw, Trash2, Wallet, DollarSign, Users, FileTe
 import { toDateInput } from "@/lib/format"
 import { bordroIsverenPayi, brutenNete } from "@/lib/personel/bordro-hesap"
 import { odenenNettenFarkli, odenenTutar } from "@/lib/personel/bordro-odenen"
+import { bordroAvansOnerisi } from "@/lib/personel/avans"
 
 type Employee = { id: string; firstName: string; lastName: string; grossSalary?: number | null; status: string }
 type Account = { id: string; name: string; type: string }
@@ -124,6 +125,26 @@ export default function MaasOdemelerPage() {
     fetchRefData()
   }, [fetchRefData])
 
+  // Seçili çalışanın açık avansı (personel kartı → Avanslar). Bordronun "Avans" alanına
+  // önerilir; düzenlenen bordronun kendi düştüğü avans bakiyeye geri eklenir.
+  const [acikAvans, setAcikAvans] = useState<number | null>(null)
+  const [duzenlenenAvans, setDuzenlenenAvans] = useState(0)
+  useEffect(() => {
+    setAcikAvans(null)
+    if (!companyId || !form.employeeId || !createOpen) return
+    let iptal = false
+    fetch(`/api/personel/avans?companyId=${encodeURIComponent(companyId)}&employeeId=${encodeURIComponent(form.employeeId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!iptal && d && typeof d.bakiye === "number") setAcikAvans(d.bakiye)
+      })
+      .catch(() => {})
+    return () => {
+      iptal = true
+    }
+  }, [companyId, form.employeeId, createOpen])
+  const avansOnerisi = acikAvans == null ? 0 : bordroAvansOnerisi(acikAvans, duzenlenenAvans)
+
   // Boş işveren payı alanında gösterilen öneri — muhasebe fişiyle aynı kural.
   const isverenOnerisi = useMemo(
     () =>
@@ -169,6 +190,7 @@ export default function MaasOdemelerPage() {
   }
 
   function openCreate() {
+    setDuzenlenenAvans(0)
     setEditingId(null)
     setEditEmployeeName("")
     setForm(emptyForm())
@@ -176,6 +198,7 @@ export default function MaasOdemelerPage() {
   }
 
   function openEdit(r: Payroll) {
+    setDuzenlenenAvans(Number(r.advance) || 0)
     setEditingId(r.id)
     setEditEmployeeName(`${r.employee.firstName} ${r.employee.lastName}`)
     setForm({
@@ -436,7 +459,19 @@ export default function MaasOdemelerPage() {
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Brüt Maaş</Label><Input type="number" value={form.grossSalary} onChange={(e) => setForm((p) => ({ ...p, grossSalary: e.target.value }))} /></div>
               <div><Label>Ek Ödeme / Prim</Label><Input type="number" value={form.bonus} onChange={(e) => setForm((p) => ({ ...p, bonus: e.target.value }))} /></div>
-              <div><Label>Avans</Label><Input type="number" value={form.advance} onChange={(e) => setForm((p) => ({ ...p, advance: e.target.value }))} /></div>
+              <div>
+                <Label>Avans</Label>
+                <Input type="number" value={form.advance} onChange={(e) => setForm((p) => ({ ...p, advance: e.target.value }))} />
+                {avansOnerisi > 0 && Number(form.advance || 0) !== avansOnerisi && (
+                  <button
+                    type="button"
+                    className="mt-1 text-left text-xs text-blue-600 hover:underline"
+                    onClick={() => setForm((p) => ({ ...p, advance: avansOnerisi.toFixed(2) }))}
+                  >
+                    Açık avans {avansOnerisi.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} ₺ — buraya yaz
+                  </button>
+                )}
+              </div>
               <div><Label>SGK Kesintisi</Label><Input type="number" value={form.sgkDeduction} onChange={(e) => setForm((p) => ({ ...p, sgkDeduction: e.target.value }))} /></div>
               <div><Label>Gelir Vergisi</Label><Input type="number" value={form.taxDeduction} onChange={(e) => setForm((p) => ({ ...p, taxDeduction: e.target.value }))} /></div>
               <div><Label>Diğer Kesinti</Label><Input type="number" value={form.otherDeduction} onChange={(e) => setForm((p) => ({ ...p, otherDeduction: e.target.value }))} /></div>

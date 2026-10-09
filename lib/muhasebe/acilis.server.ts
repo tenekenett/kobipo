@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db/prisma"
 import { cariBalancesAsOf } from "@/lib/cari/bakiye-asof"
 import { employeeBalances } from "@/lib/personel/masraf-defteri"
+import { avansBakiyeleri } from "@/lib/personel/avans.server"
+import { stokDegeri } from "@/lib/muhasebe/stok-maliyeti.server"
 import { kiymetPortfoyu, portfoyDurumSuzgeci } from "@/lib/raporlar/bilanco-kiymet"
 import { settlementReference } from "@/lib/cek-senet/tahsil"
 import { CHECK_SETTLEMENT_PREFIXES } from "@/lib/finans/nakit-hareket"
@@ -64,6 +66,23 @@ export async function acilisGirdisi(ctx: Ctx): Promise<AcilisGirdisi> {
     }),
     Promise.all(ids.map((id) => employeeBalances(id, sinir))),
   ])
+  const [avanslar, turlu, demirbaslar, stok] = await Promise.all([
+    avansBakiyeleri(ids, sinir),
+    prisma.transaction.groupBy({
+      by: ["purpose", "type"],
+      where: { companyId: { in: ids }, purpose: { in: ["LOAN", "PARTNER"] }, date: { lt: sinir } },
+      _sum: { amount: true },
+    }),
+    prisma.fixedAsset.findMany({
+      where: { companyId: { in: ids }, acquisitionDate: { lt: sinir }, OR: [{ disposedAt: null }, { disposedAt: { gte: sinir } }] },
+      select: { name: true, accountCode: true, cost: true, priorDepreciation: true },
+    }),
+    // Başlangıç anından önceki stok — aylık satılan mal maliyetiyle aynı değerleme; açılışta
+    // olmasaydı ilk ayın maliyeti eksi çıkardı (stok var, 153 boş).
+    stokDegeri(ids, sinir),
+  ])
+  const turNet = (p: string) =>
+    turlu.filter((r) => r.purpose === p).reduce((a, r) => a + (r.type === "INCOME" ? 1 : -1) * Number(r._sum.amount ?? 0), 0)
 
   const musteriBakiye = cariler.flatMap((c) => c.customers).filter((c) => Math.abs(c.balance) >= 0.005)
   const tedarikciBakiye = cariler.flatMap((c) => c.suppliers).filter((c) => Math.abs(c.balance) >= 0.005)
@@ -107,6 +126,16 @@ export async function acilisGirdisi(ctx: Ctx): Promise<AcilisGirdisi> {
       verilenSenet: senetPortfoy.given,
     },
     personel: personelBakiye.map((p) => ({ id: p.employeeId, ad: pAd.get(p.employeeId) ?? "Personel", bakiye: p.balance })),
+    avanslar: avanslar.map((a) => ({ id: a.employeeId, ad: a.ad, bakiye: a.bakiye })),
+    krediler: turNet("LOAN"),
+    ortak: turNet("PARTNER"),
+    stok: stok.deger,
+    demirbaslar: demirbaslar.map((d) => ({
+      ad: d.name,
+      hesapKodu: d.accountCode,
+      maliyet: Number(d.cost),
+      birikmis: Math.min(Number(d.priorDepreciation), Number(d.cost)),
+    })),
   }
 }
 

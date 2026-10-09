@@ -27,6 +27,7 @@ import { kiymetPortfoyu, portfoyDurumSuzgeci } from "./bilanco-kiymet"
 import { resolvePeriodBounds } from "./date-range"
 import { computeProfitLoss } from "./kar-zarar"
 import { employeeBalances } from "@/lib/personel/masraf-defteri"
+import { avansBakiyeleri } from "@/lib/personel/avans.server"
 
 /**
  * Aritmetik ve alan tanımları `bilanco-ozet.ts`te (saf, testli); burası yalnız
@@ -51,7 +52,7 @@ export async function computeBalanceSheet(args: {
   const bounds = resolvePeriodBounds(EPOCH, args.asOfDate ?? null)
   const end = bounds.endExclusive
 
-  const [cashAndBanks, profitLoss, cari, kiymetler, tahsiller, inventory, calisanlar] = await Promise.all([
+  const [cashAndBanks, profitLoss, cari, kiymetler, tahsiller, inventory, calisanlar, turlu, avanslar] = await Promise.all([
     // Nakit ve banka — TARİHE GÖRE. Eskiden hesapların bugünkü bakiyesiydi:
     // geçmiş bir güne bakan bilanço bugünkü parayı gösteriyordu.
     cashBalanceBefore(companyId, end),
@@ -99,7 +100,20 @@ export async function computeBalanceSheet(args: {
     // tedarikçi borcunu kapatır ama kasadan para çıkmaz; firma çalışana borçlanır.
     // Burada sayılmasaydı yükümlülük sessizce düşer, öz sermaye şişerdi.
     employeeBalances(companyId, end),
+
+    // Kredi ve ortak hareketleri (lib/finans/hareket-turu.ts) — kâr/zarara girmez, burada
+    // borç/alacak olarak durur.
+    prisma.transaction.groupBy({
+      by: ["purpose", "type"],
+      where: { companyId, purpose: { in: ["LOAN", "PARTNER"] }, date: { lt: end } },
+      _sum: { amount: true },
+    }),
+    avansBakiyeleri([companyId], end),
   ])
+  const turToplami = (purpose: string) =>
+    turlu
+      .filter((r) => r.purpose === purpose)
+      .reduce((a, r) => a + (r.type === "INCOME" ? 1 : -1) * Number(r._sum.amount ?? 0), 0)
 
   const tahsilTarihi = new Map<string, Date>()
   for (const t of tahsiller) if (t.reference) tahsilTarihi.set(t.reference, t.date)
@@ -133,6 +147,9 @@ export async function computeBalanceSheet(args: {
       employeeBalances: calisanlar.map((c) => c.balance),
       inventory: inventoryValue,
       retainedEarnings: profitLoss.netProfit,
+      loans: turToplami("LOAN"),
+      partnerBalance: turToplami("PARTNER"),
+      employeeAdvances: avanslar.map((a) => a.bakiye),
     }),
   }
 }

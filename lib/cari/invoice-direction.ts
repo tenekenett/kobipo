@@ -21,6 +21,8 @@ export type DirectionalInvoice = {
 }
 
 /** Malı TEDARİKÇİYE geri gönderdiğimiz iade mi? */
+
+import { faturaKuru } from "@/lib/cari/doviz"
 export function isPurchaseReturn(inv: DirectionalInvoice): boolean {
   return (
     String(inv.type || "").toUpperCase() === "RETURN" &&
@@ -66,6 +68,9 @@ export function invoiceBalanceEffect(
   invoices: Array<
     DirectionalInvoice & {
       totalAmount: unknown
+      /** Dövizli fatura fatura kuruyla TL'ye çevrilir (lib/cari/doviz.ts); TL faturada boş olabilir. */
+      currency?: string | null
+      exchangeRate?: unknown
       payments: Array<{ amount: unknown; transactionId?: string | null }>
     }
   >,
@@ -75,7 +80,7 @@ export function invoiceBalanceEffect(
       (s, p) => s + (p.transactionId ? 0 : Number(p.amount)),
       0,
     )
-    const net = Number(inv.totalAmount) - paidWithoutCash
+    const net = (Number(inv.totalAmount) - paidWithoutCash) * faturaKuru(inv)
     const customerAxis = (receivableSign(inv) - payableSign(inv)) * net
     return sum + (kind === "customer" ? customerAxis : -customerAxis)
   }, 0)

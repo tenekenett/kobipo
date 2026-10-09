@@ -24,6 +24,7 @@ import {
   useMuhasebeDurumu,
 } from "@/components/muhasebe/ortak"
 import { MutabakatIlerlemesi, ozetMetni, useMutabakat } from "@/components/muhasebe/mutabakat"
+import { EkranAciklamasi } from "@/components/muhasebe/ekran-aciklamasi"
 
 /**
  * Muhasebe Fişleri — belgelerden doğan taslak fişlerin onay ekranı (plan §2.6).
@@ -221,6 +222,24 @@ export default function MuhasebeFislerPage() {
           </>
         }
       />
+      <EkranAciklamasi anahtar="fisler">
+        <p>
+          Her fatura, tahsilat, ödeme, bordro ya da çek için Kobipo bir <strong>muhasebe fişi</strong> hazırlar: hangi hesabın borçlandığı,
+          hangisinin alacaklandığı. Fişler siz onaylayana kadar <strong>taslaktır</strong> ve deftere (mizan, bilanço) girmez.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Emin</strong>: bütün hesaplar belli — toplu onaylayabilirsiniz.
+          </li>
+          <li>
+            <strong>Gözden geçir</strong>: bir satırın hesabı seçilmeli ya da Kobipo&apos;nun tahmini kontrol edilmeli (ör. bir alış gider mi, mal
+            mı). &quot;Toplu eşle&quot; aynı türden fişleri birlikte çözer.
+          </li>
+          <li>
+            <strong>Belge değişti</strong>: onayladıktan sonra belge düzenlendi; fişi yeniden üretip tekrar onaylayın.
+          </li>
+        </ul>
+      </EkranAciklamasi>
       <ReadOnlyBanner />
       {(durumHata || hata || mutabakat.hata) && <Uyari ton="kirmizi">{durumHata || hata || mutabakat.hata}</Uyari>}
       <MutabakatIlerlemesi calisiyor={mutabakat.calisiyor} ilerleme={mutabakat.ilerleme} />

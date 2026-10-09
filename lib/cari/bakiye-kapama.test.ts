@@ -24,6 +24,8 @@ const satisFaturasi = (payments: ReturnType<typeof odeme>[]) => ({
   returnKind: null,
   invoiceNo: "SAT-2026-0001",
   eDocumentNo: null,
+  currency: "TRY",
+  exchangeRate: null,
   payments,
 })
 

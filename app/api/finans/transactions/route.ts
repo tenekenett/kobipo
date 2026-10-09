@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { faturaKuru } from "@/lib/cari/doviz"
+import { hareketTuruHatasi } from "@/lib/finans/hareket-turu"
 import { muhasebeyeBildir } from "@/lib/muhasebe/senkron.server"
 import { parseDateParam } from "@/lib/http/query-params"
 import { badRequestResponse } from "@/lib/api/errors"
@@ -136,6 +138,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
       category,
       tags,
       exchangeRate,
+      purpose: hamTur,
     } = body
 
     if (!companyId || !accountId || !type || !amount) {
@@ -240,10 +243,17 @@ export const POST = withApiErrors(async function POST(request: Request) {
           )
         }
       }
+      // Dağıtım TL'dir (hareketin tutarı kasaya giren TL): dövizli faturanın açık tutarı
+      // fatura kuruyla TL'ye çevrilir, faturaya yazılan ödeme yine döviz olarak saklanır
+      // (aşağıda ÷ kur). Kur farkı cari bakiyesinde görünür kalır (lib/cari/doviz.ts).
+      const kurlar = new Map(found.map((inv) => [inv.id, faturaKuru(inv)]))
       const openInvoices = found
         .map((inv) => ({
           id: inv.id,
-          openAmount: Number(inv.totalAmount) - inv.payments.reduce((sum, p) => sum + Number(p.amount), 0),
+          openAmount:
+            Math.round(
+              (Number(inv.totalAmount) - inv.payments.reduce((sum, p) => sum + Number(p.amount), 0)) * (kurlar.get(inv.id) ?? 1) * 100,
+            ) / 100,
         }))
         .filter((inv) => inv.openAmount > 0.005)
       if (openInvoices.length === 0) {
@@ -254,8 +264,27 @@ export const POST = withApiErrors(async function POST(request: Request) {
       }
       invoiceAllocations = odemeDagit(numericAmount, openInvoices).allocations.map((a) => ({
         invoiceId: a.invoiceId,
-        allocated: a.amount,
+        allocated: Math.round((a.amount / (kurlar.get(a.invoiceId) ?? 1)) * 100) / 100,
       }))
+    }
+
+    // Hareketin TÜRÜ (vergi, SGK, kredi, ortak — lib/finans/hareket-turu.ts). Avans burada
+    // verilmez: çalışan seçimi personel tarafındadır (maaş bilgisi finansa açılmasın).
+    const purpose = typeof hamTur === "string" && hamTur.trim() ? hamTur.trim() : null
+    if (purpose === "ADVANCE") {
+      return NextResponse.json({ error: "Personel avansı personel kartındaki Avanslar sekmesinden verilir." }, { status: 400 })
+    }
+    if (type !== "TRANSFER") {
+      const turHatasi = hareketTuruHatasi({
+        purpose,
+        tip: String(type),
+        employeeId: null,
+        cariBagli: Boolean(resolvedCustomerId || resolvedSupplierId),
+        faturaBagli: requestedInvoiceIds.length > 0,
+      })
+      if (turHatasi) return NextResponse.json({ error: turHatasi }, { status: 400 })
+    } else if (purpose) {
+      return NextResponse.json({ error: "Virmanın türü olmaz." }, { status: 400 })
     }
 
     // Para birimi HESABIN para birimidir; dövizli hesapta kur zorunlu, cari/fatura bağı ve
@@ -307,6 +336,7 @@ export const POST = withApiErrors(async function POST(request: Request) {
           // açar ve raporda "Kategorisiz"in yanında ikinci bir boş satır olur.
           category: normalizeCategory(category),
           tags: normalizeTags(tags),
+          purpose,
           createdBy: user.id,
         },
       })
