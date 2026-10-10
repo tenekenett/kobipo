@@ -310,6 +310,36 @@ GELEN → Gelen her e-fatura, HESABI AÇAN KİŞİYE (hesap kökündeki en eski 
   `--giden=<id>` (PDF/XML/HTML, göndermez); gerçek gönderim yalnız `--gonder --to=<adres>`
   ile, cariye test maili atılmaz.
 
+## Gelen e-fatura gizleme: Kobipo bayrağı `hiddenAt`, `isArchived` DEĞİL
+
+Kullanıcı ilgisiz gördüğü gelen faturayı (başka şubenin, mükerrer, Kobipo dışında
+işlenmiş…) listeden gizler (2026-10-10). Belge silinmez, Mysoft'a/GİB'e bir şey gitmez;
+"Gizlenenler" görünümünden ve detay ekranından geri alınır. Firma bazındadır (herkes için
+gizler), yazma yetkisi ister. Uç `POST /api/e-donusum/inbox/hide` (`{ uuids, hidden }`).
+
+- `IncomingInvoice.isArchived` Mysoft'undur ve HER SENKRONDA yeniden yazılır — gizleme
+  oraya yazılsaydı ilk senkronda geri açılırdı.
+- Gizlenen fatura listeden, özet kartlardan, dışa aktarımdan, birleşik fatura listesinden,
+  "işlenmemiş fatura" / "yanıt bekleyen" kartlarından ve KDV kontrol listesinden
+  (`aktarilmamisGelenFaturalar`) DÜŞER. Kural `incoming-list-query.ts` →
+  `IncomingHiddenFilter`; ham SQL yazan yerler `"hiddenAt" IS NULL`u elle yazar. Gelen
+  faturayı sayan yeni bir yer de yazmalı — yoksa kart "12 fatura" der, tıklanınca açılan
+  liste 9 gösterir.
+- Gizlenen sayısı her an görünür (`hiddenCount`: başlıkta "· N gizli", "Gizlenenler (N)"
+  düğmesi, boş listede "N fatura gizli"). Yanıt bekleyen TİCARİ faturayı gizlemeden önce
+  sorulur: gizlemek GİB'deki 8 günlük yanıt süresini durdurmaz.
+- Mükerrer kontrolü, e-posta bildirimi ve alışa dönüştürme gizlemeyi BİLEREK okumaz.
+
+## Kullanıcı telefonu: 0 ile başlayan 11 hane, rakam olarak saklanır
+
+`User.phone` standardı TEK yerde: `lib/text/tr-phone.ts` (saf). Giriş alanı
+`formatTrPhone` ile "0532 123 45 67" diye maskeler (+90, 0090 ve baştaki 0'ı unutulmuş
+numara kendiliğinden düzelir), uç `normalizeTrPhone` ile "05321234567" saklar, geçersizde
+`TR_PHONE_ERROR` (400). Kayıt, davet kabulü ve profil aynı fonksiyondan geçer (2026-10-10;
+öncesinde kayıt ekranı serbest metin alıyordu: canlıda 11 hane, 10 hane ve "+90 …" yan
+yana). Profil ucu yalnız DEĞİŞEN numarayı sınar — kural öncesi serbest kayıt, kullanıcı ona
+dokunmadan adını değiştirebilsin. Firma/cari/personel telefonları bu standarda girmedi.
+
 ## Abonelik FİRMA bazındadır — yetki devretmez
 
 2026-09-04'te değişti: her firma (kök, şube, ek firma) kendi aboneliğini satın alır.

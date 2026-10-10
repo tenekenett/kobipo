@@ -3,6 +3,7 @@ import { randomBytes } from "crypto"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/db/prisma"
 import { withMembershipLog } from "@/lib/audit/permission-log.server"
+import { normalizeTrPhone, TR_PHONE_ERROR } from "@/lib/text/tr-phone"
 
 export const dynamic = "force-dynamic"
 
@@ -44,6 +45,11 @@ export async function POST(
     if (!name || !phone || !password) {
       return NextResponse.json({ error: "Ad soyad, telefon ve şifre zorunludur" }, { status: 400 })
     }
+    // Telefon standardı kayıt ekranıyla aynı (lib/text/tr-phone.ts).
+    const normalizedPhone = normalizeTrPhone(phone)
+    if (!normalizedPhone) {
+      return NextResponse.json({ error: TR_PHONE_ERROR }, { status: 400 })
+    }
     if (!PASSWORD_REGEX.test(password)) {
       return NextResponse.json(
         { error: "Şifre en az 8 karakter olmalı, en az bir büyük harf, bir rakam ve bir özel karakter içermelidir" },
@@ -56,7 +62,7 @@ export async function POST(
       data: {
         email: invitation.email,
         name,
-        phone,
+        phone: normalizedPhone,
         password: hashedPassword,
       },
     })

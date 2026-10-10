@@ -219,6 +219,9 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
       where: {
         companyId,
         docDate: { gte: start, lte: end },
+        // Gelen fatura ekranında gizlenen belge burada da görünmez (aynı küme:
+        // incoming-list-query.ts → IncomingHiddenFilter).
+        hiddenAt: null,
         ...statusWhere,
         ...amountFilter("payableAmount"),
         // Koşullar AND dizisinde: "search" kendi OR'unu taşıdığı için düz nesne
@@ -240,7 +243,9 @@ export async function fetchInvoiceList(options: InvoiceListOptions): Promise<Inv
           ...(taxNumber ? [{ senderTaxNumber: { contains: taxNumber } }] : []),
         ],
       },
-      orderBy: [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+      // `id` son ölçüt: aynı senkronun faturalarında tarih ve createdAt eşit; `take` sınırında
+      // hangilerinin kalacağı istekten isteğe değişmesin (incomingOrderBy ile aynı kural).
+      orderBy: [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }],
       take: limit,
     })
     if (incoming.length >= limit) truncated = true

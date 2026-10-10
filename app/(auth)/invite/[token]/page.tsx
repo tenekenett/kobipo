@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useSession, signIn } from "next-auth/react"
 import { roleLabel } from "@/lib/auth/role-labels"
+import { formatTrPhone, normalizeTrPhone, TR_PHONE_ERROR } from "@/lib/text/tr-phone"
 import { User, Phone, Lock, Eye, EyeOff, Check, Circle, Loader2 } from "lucide-react"
 
 type InvitationInfo = {
@@ -16,17 +17,6 @@ type InvitationInfo = {
 }
 
 const PASSWORD_REGEX = /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/
-
-/** Türk cep telefonunu yazarken canlı biçimlendirir: 0XXX XXX XX XX (maks 11 hane). */
-function formatTrPhone(raw: string): string {
-  const d = raw.replace(/\D/g, "").slice(0, 11)
-  const parts: string[] = []
-  if (d.length > 0) parts.push(d.slice(0, 4))
-  if (d.length > 4) parts.push(d.slice(4, 7))
-  if (d.length > 7) parts.push(d.slice(7, 9))
-  if (d.length > 9) parts.push(d.slice(9, 11))
-  return parts.join(" ")
-}
 
 export default function InviteAcceptPage() {
   const { token } = useParams<{ token: string }>()
@@ -68,9 +58,9 @@ export default function InviteAcceptPage() {
     Boolean(invitation?.email) &&
     session!.user!.email!.toLowerCase() !== invitation!.email.toLowerCase()
 
-  // Telefon: 11 hane ve 0 ile başlamalı (05xx...).
-  const phoneDigits = phone.replace(/\D/g, "")
-  const phoneValid = phoneDigits.length === 11 && phoneDigits.startsWith("0")
+  // Telefon standardı kayıt ekranıyla ortak: lib/text/tr-phone.ts (0 ile başlayan 11 hane).
+  const phoneDigits = normalizeTrPhone(phone)
+  const phoneValid = phoneDigits !== null
 
   // Şifre kuralları — her biri canlı kontrol edilir, sağlanınca yeşile döner.
   const passwordChecks = [
@@ -100,7 +90,7 @@ export default function InviteAcceptPage() {
         return
       }
       if (!phoneValid) {
-        setError("Geçerli bir telefon numarası girin (0 ile başlayan 11 hane).")
+        setError(TR_PHONE_ERROR)
         return
       }
       if (!PASSWORD_REGEX.test(password)) {

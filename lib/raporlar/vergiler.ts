@@ -265,6 +265,9 @@ export async function aktarilmamisGelenFaturalar(args: {
       AND ii.status = 'KABUL'
       AND ii."isLinkedToPurchase" = false
       AND ii."isArchived" = false
+      -- Kullanıcının listede gizlediği fatura ("bizim değil / Kobipo dışında işlendi")
+      -- uyarıya girmez; gelen fatura ekranıyla aynı küme (incoming-list-query.ts).
+      AND ii."hiddenAt" IS NULL
       AND ${istanbulGunuSql(Prisma.sql`ii."docDate"`)} >= ${gunMetni(args.bas)}::date
       AND ${istanbulGunuSql(Prisma.sql`ii."docDate"`)} < ${gunMetni(args.sonHaric)}::date
   `)

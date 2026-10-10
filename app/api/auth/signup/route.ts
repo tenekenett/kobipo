@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
 import { verifyRecaptcha } from "@/lib/auth/recaptcha"
 import { clientInfoFromHeaders, recordAccess } from "@/lib/audit/access-log"
+import { normalizeTrPhone, TR_PHONE_ERROR } from "@/lib/text/tr-phone"
 
 export const dynamic = 'force-dynamic'
 
@@ -41,6 +42,14 @@ export async function POST(request: Request) {
       )
     }
 
+    // Telefon standardı (lib/text/tr-phone.ts): yalnız rakam, 0 ile başlayan 11 hane.
+    // Ekran maskeliyor ama uç da doğrular — eski istemci ya da doğrudan istek serbest
+    // metin yazamasın.
+    const normalizedPhone = normalizeTrPhone(trimmedPhone)
+    if (!normalizedPhone) {
+      return NextResponse.json({ error: TR_PHONE_ERROR }, { status: 400 })
+    }
+
     if (!EMAIL_REGEX.test(normalizedEmail)) {
       return NextResponse.json(
         { error: "Geçerli bir e-mail adresi girin" },
@@ -75,7 +84,7 @@ export async function POST(request: Request) {
         password: hashedPassword,
         companyDisplayName: trimmedCompanyOrPersonName,
         companyBranchName: trimmedCompanyBranchName || null,
-        phone: trimmedPhone,
+        phone: normalizedPhone,
       },
     })
 

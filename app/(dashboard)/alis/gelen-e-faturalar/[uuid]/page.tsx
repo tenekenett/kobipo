@@ -32,6 +32,8 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 
 interface IncomingLine {
@@ -67,6 +69,9 @@ interface IncomingDetail {
   envelopeStatusDesc: string | null
   isLinkedToPurchase: boolean
   linkedInvoiceId: string | null
+  // Listede gizlendiyse ne zaman / kim (lib/integrations/e-invoice/incoming-list-query.ts).
+  hiddenAt: string | null
+  hiddenBy: string | null
   model: {
     lines: IncomingLine[]
     sender: { name: string | null; taxNumber: string | null; address: string | null }
@@ -97,6 +102,7 @@ export default function GelenEFaturaDetailPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [isResponding, setIsResponding] = useState<"accept" | "reject" | null>(null)
+  const [isHiding, setIsHiding] = useState(false)
 
   const fetchDetail = useCallback(async () => {
     if (!companyId || !uuid) return
@@ -207,6 +213,52 @@ export default function GelenEFaturaDetailPage() {
       toast({ title: "Hata", description: e?.message || "İşlem sırasında hata", variant: "destructive" })
     } finally {
       setIsResponding(null)
+    }
+  }
+
+  // Listeden gizle / listede göster — liste ekranındaki düğmeyle aynı uç ve aynı uyarı.
+  const handleToggleHidden = async () => {
+    if (!companyId || !uuid || !record) return
+    const hide = !record.hiddenAt
+    const durum = (record.status || "").toUpperCase()
+    const bekliyor = record.profile === "TICARIFATURA" && durum !== "KABUL" && durum !== "RED"
+    if (
+      hide &&
+      bekliyor &&
+      !(await confirm({
+        title: "Yanıt bekleyen ticari fatura",
+        description:
+          "Bu ticari fatura henüz kabul ya da red edilmedi. Gizlemek yanıt süresini durdurmaz: GİB'de 8 gün içinde yanıtlanmayan ticari fatura kabul edilmiş sayılır. Gizlenen fatura \"yanıt bekleyen\" uyarısında da görünmez. Yine de gizlensin mi?",
+        confirmLabel: "Gizle",
+      }))
+    ) {
+      return
+    }
+    setIsHiding(true)
+    try {
+      const res = await fetch("/api/e-donusum/inbox/hide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, uuids: [uuid], hidden: hide }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: hide ? "Gizlenemedi" : "Listeye alınamadı",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      toast({
+        title: hide ? "Fatura listeden gizlendi" : "Fatura yeniden listede",
+        description: hide ? "Silinmedi — buradan ya da listedeki “Gizlenenler”den geri alabilirsiniz." : undefined,
+      })
+      fetchDetail()
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "İşlem sırasında hata", variant: "destructive" })
+    } finally {
+      setIsHiding(false)
     }
   }
 
@@ -321,6 +373,18 @@ export default function GelenEFaturaDetailPage() {
               </Button>
             </WriteAction>
           )}
+          <WriteAction>
+            <Button variant="outline" onClick={handleToggleHidden} disabled={isHiding}>
+              {isHiding ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : record.hiddenAt ? (
+                <Eye className="mr-2 h-4 w-4" />
+              ) : (
+                <EyeOff className="mr-2 h-4 w-4" />
+              )}
+              {record.hiddenAt ? "Listede göster" : "Listeden gizle"}
+            </Button>
+          </WriteAction>
           <ExportAction>
             <Button variant="outline" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
               {isDownloadingPdf ? (
@@ -359,6 +423,20 @@ export default function GelenEFaturaDetailPage() {
           )}
         </div>
       </div>
+
+      {record.hiddenAt && (
+        <Card className="border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40">
+          <CardContent className="flex items-start gap-2 pt-6 text-sm text-slate-800 dark:text-slate-200">
+            <EyeOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Bu fatura gelen fatura listesinde <strong>gizli</strong> (
+              {new Date(record.hiddenAt).toLocaleDateString("tr-TR")}
+              {record.hiddenBy ? ` · ${record.hiddenBy}` : ""}). Özet kartlarda, uyarı kartlarında
+              ve KDV kontrolünde sayılmaz; belge silinmedi.
+            </span>
+          </CardContent>
+        </Card>
+      )}
 
       {canRespond && (
         <Card className="border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/30">

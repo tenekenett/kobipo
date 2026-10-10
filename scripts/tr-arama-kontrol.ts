@@ -150,6 +150,7 @@ async function main() {
       taxNumber: "",
       minAmount: null,
       maxAmount: null,
+      hidden: "exclude",
     })
     return { sayi: await prisma.incomingInvoice.count({ where }) }
   })

@@ -17,6 +17,17 @@ import { trSearchDistinctValues } from "@/lib/db/tr-search"
 
 export type IncomingDateField = "docDate" | "sentDate"
 
+/**
+ * GİZLEME — kullanıcı ilgisiz gördüğü faturayı listeden kaldırır (`hiddenAt`).
+ *   "exclude" (varsayılan) → gizlenenler yok: liste, özet kartlar, dışa aktarım ve bu
+ *                            modülü kullanan otomasyon kartı (yanıt bekleyen) onları saymaz
+ *   "only"                 → yalnız gizlenenler ("Gizlenenler" görünümü, geri alma yeri)
+ * Ham SQL yazan diğer yerler (işlenmemiş fatura kartı, KDV kontrol listesi, birleşik
+ * fatura listesi) aynı koşulu elle yazar: `"hiddenAt" IS NULL`. Biri unutulursa kart
+ * "12 fatura aktarılmadı" der, tıklanınca açılan liste 9 gösterir.
+ */
+export type IncomingHiddenFilter = "exclude" | "only"
+
 export type IncomingListFilters = {
   dateField: IncomingDateField
   startDate: Date
@@ -31,6 +42,7 @@ export type IncomingListFilters = {
   taxNumber: string
   minAmount: number | null
   maxAmount: number | null
+  hidden: IncomingHiddenFilter
 }
 
 export type IncomingListPaging = { page: number; pageSize: number }
@@ -62,6 +74,8 @@ export const INCOMING_LIST_SELECT = {
   isArchived: true,
   isLinkedToPurchase: true,
   linkedInvoiceId: true,
+  hiddenAt: true,
+  hiddenById: true,
   syncedAt: true,
   // E-posta bildirimi (lib/fatura-eposta/kurallar.ts → gelenBildirimGorunumu).
   notifyResult: true,
@@ -127,6 +141,7 @@ export function parseIncomingListFilters(
       taxNumber: trimmed("taxNumber"),
       minAmount,
       maxAmount,
+      hidden: trimmed("hidden") === "only" ? "only" : "exclude",
     },
   }
 }
@@ -185,6 +200,7 @@ export async function buildIncomingFilterConditions(
     and.push({ status: { equals: filters.status, mode: "insensitive" } })
   }
 
+  and.push({ hiddenAt: filters.hidden === "only" ? { not: null } : null })
   if (filters.profile) and.push({ profile: filters.profile })
   if (filters.linked === "linked") and.push({ isLinkedToPurchase: true })
   if (filters.linked === "unlinked") and.push({ isLinkedToPurchase: false })
@@ -235,12 +251,18 @@ export async function buildIncomingWhereWithoutDate(
   return { companyId, ...(and.length ? { AND: and } : {}) }
 }
 
+/**
+ * Sıralama TAM olmalı: aynı senkronda gelen faturaların hem belge tarihi (gün, saatsiz)
+ * hem `createdAt`i birebir aynı (Reypo'da 5 fatura aynı milisaniye, 2026-10-10). Eşitlikte
+ * Postgres sırayı istekten isteğe değiştiriyor; sayfalı listede fatura iki sayfada birden
+ * görünüyor ya da hiç görünmüyordu. Son ölçüt `id` (benzersiz) bunu kapatır.
+ */
 export function incomingOrderBy(
   dateField: IncomingDateField,
 ): Prisma.IncomingInvoiceOrderByWithRelationInput[] {
   return dateField === "sentDate"
-    ? [{ sentDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
-    : [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
+    ? [{ sentDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }]
+    : [{ docDate: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }]
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -269,6 +291,7 @@ export function describeIncomingFilters(filters: IncomingListFilters): string[] 
       filters.startDate,
     )} – ${trDate(filters.endDate)}`,
   ]
+  if (filters.hidden === "only") out.push("Yalnız listede gizlenen faturalar")
   if (filters.status) out.push(`Durum: ${STATUS_LABELS[filters.status] ?? filters.status}`)
   if (filters.profile) out.push(`Profil: ${PROFILE_LABELS[filters.profile] ?? filters.profile}`)
   if (filters.linked === "linked") out.push("Yalnız alış faturasına dönüştürülenler")

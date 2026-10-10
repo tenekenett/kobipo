@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { getCurrentUser } from "@/lib/auth/session"
 import { prisma } from "@/lib/db/prisma"
 import bcrypt from "bcryptjs"
+import { normalizeTrPhone, TR_PHONE_ERROR } from "@/lib/text/tr-phone"
 
 export const dynamic = "force-dynamic"
 
@@ -37,10 +38,26 @@ export async function PUT(request: Request) {
     }
   }
 
+  // Telefon standardı (lib/text/tr-phone.ts) yalnız DEĞİŞEN numaraya uygulanır: kural
+  // gelmeden önce serbest metinle kaydedilmiş numara, kullanıcı ona dokunmadan adını
+  // değiştirmek isterse kaydı engellememeli. Değişen numara rakam olarak saklanır.
+  let nextPhone: string | null | undefined = undefined
+  if (phone !== undefined) {
+    const raw = String(phone ?? "").trim()
+    const current = await prisma.user.findUnique({ where: { id: user.id }, select: { phone: true } })
+    if (raw === (current?.phone ?? "").trim()) {
+      nextPhone = current?.phone ?? null
+    } else {
+      const normalized = normalizeTrPhone(raw)
+      if (!normalized) return NextResponse.json({ error: TR_PHONE_ERROR }, { status: 400 })
+      nextPhone = normalized
+    }
+  }
+
   const data: any = {
     name,
     email,
-    phone,
+    phone: nextPhone,
     twoFactorEnabled: Boolean(twoFactorEnabled),
   }
   if (password) {

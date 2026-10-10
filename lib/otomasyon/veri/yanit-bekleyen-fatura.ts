@@ -117,6 +117,8 @@ export async function yanitBekleyenOzeti(
     taxNumber: "",
     minAmount: null,
     maxAmount: null,
+    // Ekranla aynı: listede gizlenen fatura kartta da sayılmaz (kart ekrana yollar).
+    hidden: "exclude",
   })
 
   const kayitlar = await prisma.incomingInvoice.findMany({

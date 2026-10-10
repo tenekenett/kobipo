@@ -47,6 +47,7 @@ import { useRouter } from "next/navigation"
 import { Role } from "@prisma/client"
 import { roleLabels } from "@/lib/auth/role-labels"
 import { trFold } from "@/lib/text/tr-fold"
+import { displayTrPhone } from "@/lib/text/tr-phone"
 
 interface User {
   id: string
@@ -248,7 +249,8 @@ export function UserTable({ users, companies }: UserTableProps) {
   const filteredUsers = users.filter((user) => {
     const q = trFold(searchTerm)
     if (!q) return true
-    return [user.name, user.email, user.phone, user.companyDisplayName, user.companyBranchName]
+    // Telefon hem saklandığı (05321234567) hem göründüğü (0532 123 45 67) biçimiyle aranır.
+    return [user.name, user.email, user.phone, displayTrPhone(user.phone), user.companyDisplayName, user.companyBranchName]
       .filter(Boolean)
       .some((field) => trFold(field).includes(q))
   })
@@ -402,7 +404,7 @@ export function UserTable({ users, companies }: UserTableProps) {
                     {user.email}
                   </TableCell>
                   <TableCell className="text-slate-300 whitespace-nowrap">
-                    {user.phone || <span className="text-slate-600">-</span>}
+                    {displayTrPhone(user.phone) || <span className="text-slate-600">-</span>}
                   </TableCell>
                   <TableCell className="text-slate-300">
                     {user.companyDisplayName ? (
@@ -548,7 +550,7 @@ export function UserTable({ users, companies }: UserTableProps) {
               {[
                 { label: "Ad Soyad", value: detailUser.name },
                 { label: "E-posta", value: detailUser.email },
-                { label: "Telefon", value: detailUser.phone },
+                { label: "Telefon", value: displayTrPhone(detailUser.phone) || null },
                 { label: "Firma / Şahıs Ünvanı (kayıt formu)", value: detailUser.companyDisplayName },
                 { label: "Şube İsmi (kayıt formu)", value: detailUser.companyBranchName },
                 { label: "İki Adımlı Doğrulama", value: detailUser.twoFactorEnabled ? "Açık" : "Kapalı" },

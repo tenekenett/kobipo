@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { Recaptcha } from "@/components/auth/recaptcha"
+import { formatTrPhone, isValidTrPhone, normalizeTrPhone, TR_PHONE_ERROR } from "@/lib/text/tr-phone"
 import {
   User,
   Building2,
@@ -74,6 +75,11 @@ export default function SignUpPage() {
       return
     }
 
+    if (!isValidTrPhone(formData.phone)) {
+      toast({ title: "Hata", description: TR_PHONE_ERROR, variant: "destructive" })
+      return
+    }
+
     if (formData.password !== formData.confirmPassword) {
       toast({
         title: "Hata",
@@ -103,7 +109,8 @@ export default function SignUpPage() {
           name: formData.name.trim(),
           companyOrPersonName: formData.companyOrPersonName.trim(),
           companyBranchName: formData.companyBranchName.trim(),
-          phone: formData.phone.trim(),
+          // Standart: yalnız rakam ("05321234567"); ekranda maskeli görünür.
+          phone: normalizeTrPhone(formData.phone),
           email: formData.email.trim(),
           password: formData.password,
           captchaToken: captchaToken ?? "",
@@ -146,6 +153,9 @@ export default function SignUpPage() {
       setIsLoading(false)
     }
   }
+
+  // Yazmaya başlamadan uyarı gösterilmez; tam numaraya ulaşınca kendiliğinden kalkar.
+  const phoneInvalid = formData.phone.trim() !== "" && !isValidTrPhone(formData.phone)
 
   // Şifre güçlülük göstergesi
   const pw = formData.password
@@ -242,18 +252,30 @@ export default function SignUpPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-          <FloatingInput
-            id="phone"
-            label="Telefon"
-            type="tel"
-            placeholder="05xx xxx xx xx"
-            value={formData.phone}
-            onChange={(v) => setFormData({ ...formData, phone: v })}
-            icon={<Phone className="h-4 w-4" />}
-            disabled={isLoading}
-            required
-            delay="0.25s"
-          />
+          {/* Telefon standardı (lib/text/tr-phone.ts): yazarken "0532 123 45 67" diye
+              maskelenir, +90 / başta 0 yok gibi girişler kendiliğinden düzelir. */}
+          <div>
+            <FloatingInput
+              id="phone"
+              label="Telefon"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              placeholder="05xx xxx xx xx"
+              value={formData.phone}
+              onChange={(v) => setFormData({ ...formData, phone: formatTrPhone(v) })}
+              icon={<Phone className="h-4 w-4" />}
+              disabled={isLoading}
+              required
+              invalid={phoneInvalid}
+              delay="0.25s"
+            />
+            {phoneInvalid && (
+              <p className="mt-1 text-[11px] leading-snug text-red-600">
+                0 ile başlayan 11 haneli numara girin.
+              </p>
+            )}
+          </div>
           <FloatingInput
             id="email"
             label="E-posta"
@@ -411,11 +433,17 @@ function FloatingInput({
   rightSlot,
   disabled,
   required,
+  invalid,
+  inputMode,
+  autoComplete,
   delay,
 }: {
   id: string
   label: string
   type: string
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]
+  autoComplete?: string
+  invalid?: boolean
   placeholder?: string
   value: string
   onChange: (v: string) => void
@@ -450,7 +478,12 @@ function FloatingInput({
           onChange={(e) => onChange(e.target.value)}
           required={required}
           disabled={disabled}
-          className={`peer w-full rounded-xl border-2 border-kobipo-border bg-white/80 py-3 ${
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          aria-invalid={invalid || undefined}
+          className={`peer w-full rounded-xl border-2 ${
+            invalid ? "border-red-400" : "border-kobipo-border"
+          } bg-white/80 py-3 ${
             icon ? "pl-10" : "pl-3"
           } ${
             rightSlot ? "pr-10" : "pr-3"

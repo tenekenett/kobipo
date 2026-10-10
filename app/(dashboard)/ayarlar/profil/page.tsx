@@ -9,12 +9,14 @@ import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { useTheme } from "@/components/providers/theme-provider"
 import { cn } from "@/lib/utils"
+import { displayTrPhone, formatTrPhone, isValidTrPhone } from "@/lib/text/tr-phone"
 import { Laptop, Moon, Sun } from "lucide-react"
 
 export default function ProfilPage() {
   const { toast } = useToast()
   const { theme, setTheme } = useTheme()
   const [isSaving, setIsSaving] = useState(false)
+  const [phoneTouched, setPhoneTouched] = useState(false)
   const [themeMounted, setThemeMounted] = useState(false)
 
   useEffect(() => {
@@ -43,11 +45,16 @@ export default function ProfilPage() {
         ...prev,
         name: data.name || "",
         email: data.email || "",
-        phone: data.phone || "",
+        // Standarda uyan numara maskeli gösterilir; eski serbest kayıt kullanıcı
+        // düzenleyene kadar olduğu gibi kalır (maske onu kırpabilirdi).
+        phone: displayTrPhone(data.phone),
         twoFactorEnabled: Boolean(data.twoFactorEnabled),
       }))
     })
   }, [])
+
+  // Yalnız kullanıcının düzenlediği numara sınanır (sunucu da yalnız değişeni sınar).
+  const phoneInvalid = phoneTouched && form.phone.trim() !== "" && !isValidTrPhone(form.phone)
 
   const save = async () => {
     if (form.password && form.password !== form.passwordRepeat) {
@@ -149,7 +156,21 @@ export default function ProfilPage() {
         </div>
         <div className="space-y-2">
           <Label htmlFor="phone">Telefon</Label>
-          <Input id="phone" placeholder="Telefon" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <Input
+            id="phone"
+            type="tel"
+            inputMode="numeric"
+            placeholder="05xx xxx xx xx"
+            value={form.phone}
+            onChange={(e) => {
+              setPhoneTouched(true)
+              setForm({ ...form, phone: formatTrPhone(e.target.value) })
+            }}
+            aria-invalid={phoneInvalid || undefined}
+          />
+          {phoneInvalid && (
+            <p className="text-xs text-red-600 dark:text-red-400">0 ile başlayan 11 haneli numara girin.</p>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="password">Yeni Şifre (opsiyonel)</Label>

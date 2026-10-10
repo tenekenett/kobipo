@@ -52,6 +52,8 @@ export const dynamic = "force-dynamic"
  *  - sender      gönderici ünvanı içerir
  *  - taxNumber   gönderici VKN/TCKN içerir
  *  - minAmount / maxAmount   ödenecek tutar aralığı
+ *  - hidden      "only" → yalnız listede gizlenenler; yoksa gizlenenler HARİÇ
+ *                (yanıttaki `hiddenCount`: aynı filtrelerle kaç fatura gizli)
  *  - page        1'den başlar (default 1)
  *  - pageSize    default 100, max 500
  */
@@ -83,9 +85,15 @@ export const GET = withApiErrors(async function GET(request: Request) {
       const dateField = filters.dateField
       const { page, pageSize } = parseIncomingListPaging(url.searchParams)
 
-      const [where, whereWithoutDate] = await Promise.all([
+      const [where, whereWithoutDate, hiddenWhere] = await Promise.all([
         buildIncomingWhere(companyId, filters),
         buildIncomingWhereWithoutDate(companyId, filters),
+        // Aynı filtrelerin gizli karşılığı: "Gizlenenler (N)" düğmesinin sayısı.
+        // Gizlemek faturayı sessizce kaybettirmesin — kaç tanesinin listede
+        // olmadığı her an görünür.
+        filters.hidden === "only"
+          ? Promise.resolve(null)
+          : buildIncomingWhere(companyId, { ...filters, hidden: "only" }),
       ])
 
       // Gönderilme tarihi Mysoft ham JSON'ından türetilir; alan hiç gelmemişse kolon
@@ -100,7 +108,7 @@ export const GET = withApiErrors(async function GET(request: Request) {
 
       // Özet kartlar SAYFAYA DEĞİL filtrenin tamamına bakar; yoksa "sayfada 100 fatura"
       // ile "aralıkta 1.240 fatura" birbirine karışır ve toplamlar yanlış okunur.
-      const [records, byStatus, linkedByCurrency, missingSentDate] = await Promise.all([
+      const [records, byStatus, linkedByCurrency, missingSentDate, hiddenCountOther] = await Promise.all([
         prisma.incomingInvoice.findMany({
           where,
           select: INCOMING_LIST_SELECT,
@@ -126,7 +134,18 @@ export const GET = withApiErrors(async function GET(request: Request) {
           _sum: { payableAmount: true },
         }),
         missingSentDatePromise,
+        hiddenWhere ? prisma.incomingInvoice.count({ where: hiddenWhere }) : Promise.resolve(0),
       ])
+
+      // Gizleyen kullanıcının adı (yalnız gizli satırlarda; tek sorgu).
+      const hiderIds = [...new Set(records.map((r) => r.hiddenById).filter((v): v is string => !!v))]
+      const hiders = hiderIds.length
+        ? await prisma.user.findMany({
+            where: { id: { in: hiderIds } },
+            select: { id: true, name: true, email: true },
+          })
+        : []
+      const hiderName = new Map(hiders.map((u) => [u.id, u.name || u.email]))
 
       // Tutarlar faturanın kendi para biriminde; özet tek bir ₺ rakamı gösterdiği
       // için kur ile çevriliyor. Kural ve gerekçesi: [[incoming-amount.ts]]
@@ -204,6 +223,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
         dateField,
         missingSentDate,
         emptyHint,
+        hidden: filters.hidden,
+        hiddenCount: filters.hidden === "only" ? stats.total.count : hiddenCountOther,
         count: records.length,
         total: stats.total.count,
         page,
@@ -229,6 +250,8 @@ export const GET = withApiErrors(async function GET(request: Request) {
           isArchived: r.isArchived,
           isLinkedToPurchase: r.isLinkedToPurchase,
           linkedInvoiceId: r.linkedInvoiceId,
+          hiddenAt: r.hiddenAt ? r.hiddenAt.toISOString() : null,
+          hiddenBy: r.hiddenById ? hiderName.get(r.hiddenById) ?? null : null,
           syncedAt: r.syncedAt.toISOString(),
           notifyResult: r.notifyResult,
           notifiedAt: r.notifiedAt ? r.notifiedAt.toISOString() : null,

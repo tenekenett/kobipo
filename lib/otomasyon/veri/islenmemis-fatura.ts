@@ -74,6 +74,9 @@ export async function islenmemisFaturaOzeti(
       WHERE "companyId" = ${companyId}
         AND "isLinkedToPurchase" = false
         AND "isArchived" = false
+        -- Listede gizlenen fatura sayılmaz: kart gelen fatura ekranına yollar ve
+        -- ekran gizlenenleri göstermez (incoming-list-query.ts → IncomingHiddenFilter).
+        AND "hiddenAt" IS NULL
         AND status = 'KABUL'
         AND "docDate" IS NOT NULL
         AND "docDate" <= ${enYeni}

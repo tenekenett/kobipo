@@ -3094,6 +3094,13 @@ model IncomingInvoice {
   // Kobipo iç akışı:
   isLinkedToPurchase Boolean   @default(false) // Alış faturasına dönüştürüldü mü
   linkedInvoiceId    String? // İlişkili Kobipo Invoice (alış) id'si
+  // LİSTEDE GİZLEME (kullanıcı kararı, firma bazında). Doluysa fatura gelen fatura
+  // listesinden, özet kartlardan, birleşik fatura listesinden, otomasyon kartlarından
+  // ve KDV kontrol listesinden düşer; "Gizlenenler" görünümünden geri alınır.
+  // `isArchived` Mysoft'undur ve her senkronda ezilir — gizleme oraya YAZILMAZ.
+  // Kural: lib/integrations/e-invoice/incoming-list-query.ts.
+  hiddenAt           DateTime?
+  hiddenById         String? // Gizleyen kullanıcı (User.id; ilişki yok — kullanıcı silinse de iz kalsın)
   // E-POSTA BİLDİRİMİ (lib/fatura-eposta/gelen.server.ts). notifiedAt doluysa satır
   // bildirim açısından KAPANMIŞTIR; sonuç notifyResult'ta: GONDERILDI | KOPYA (aynı
   // hesapta aynı ETTN başka firma satırından bildirildi — şube ana firmanın gelen

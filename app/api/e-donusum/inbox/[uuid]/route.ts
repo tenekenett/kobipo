@@ -51,6 +51,14 @@ export const GET = withApiErrors(async function GET(
       return NextResponse.json({ error: "Kayıt bulunamadı" }, { status: 404 })
     }
 
+    // Listede gizlenmişse kim gizledi (detay ekranı "geri al" şeridinde yazar).
+    const hiddenBy = record.hiddenById
+      ? await prisma.user.findUnique({
+          where: { id: record.hiddenById },
+          select: { name: true, email: true },
+        })
+      : null
+
     // DB kaydını her durumda dön
     const base = {
       id: record.id,
@@ -75,6 +83,8 @@ export const GET = withApiErrors(async function GET(
       isArchived: record.isArchived,
       isLinkedToPurchase: record.isLinkedToPurchase,
       linkedInvoiceId: record.linkedInvoiceId,
+      hiddenAt: record.hiddenAt ? record.hiddenAt.toISOString() : null,
+      hiddenBy: hiddenBy ? hiddenBy.name || hiddenBy.email : null,
       raw: record.raw,
       syncedAt: record.syncedAt.toISOString(),
     }

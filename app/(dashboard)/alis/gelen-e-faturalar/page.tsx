@@ -47,6 +47,8 @@ import {
   CalendarRange,
   X,
   Mail,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -58,7 +60,8 @@ import {
   toDateInput,
 } from "@/lib/format"
 import { ExportButton } from "@/components/export/export-button"
-import { ExportAction, WriteAction } from "@/components/dashboard/write-guard"
+import { ExportAction, WriteAction, useCanEditHere } from "@/components/dashboard/write-guard"
+import { ToastAction } from "@/components/ui/toast"
 import { openPdfInNewTab, PDF_TAB_BLOCKED } from "@/lib/pdf/open-in-new-tab"
 import { gelenBildirimGorunumu, type GelenBildirimGorunumu } from "@/lib/fatura-eposta/kurallar"
 
@@ -80,6 +83,9 @@ interface IncomingRow {
   isArchived: boolean
   isLinkedToPurchase: boolean
   linkedInvoiceId: string | null
+  // Listede gizlendiyse ne zaman / kim (yalnız "Gizlenenler" görünümünde dolu gelir).
+  hiddenAt?: string | null
+  hiddenBy?: string | null
   syncedAt: string
   // E-posta bildirimi — yalnız DB kaynağında gelir (Mysoft canlı modunda alan yok).
   notifyResult?: string | null
@@ -155,6 +161,12 @@ const RANGE_PRESETS = [
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+/** Yanıt bekleyen TİCARİ fatura mı? (Kabul/Reddet düğmelerinin koşuluyla aynı.) */
+const yanitBekliyor = (row: IncomingRow) =>
+  row.profile === "TICARIFATURA" &&
+  (row.status || "").toUpperCase() !== "KABUL" &&
+  (row.status || "").toUpperCase() !== "RED"
+
 /**
  * Ekranın URL SÖZLEŞMESİ: `?gun=90&durum=KABUL&aktarim=unlinked`.
  *
@@ -218,6 +230,16 @@ export default function GelenEFaturalarPage() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [downloadingPdfUuid, setDownloadingPdfUuid] = useState<string | null>(null)
   const [respondingUuid, setRespondingUuid] = useState<string | null>(null)
+  const canEdit = useCanEditHere()
+
+  // --- Gizleme: kullanıcı ilgisiz gördüğü faturayı listeden kaldırır ----------
+  // Belge silinmez; "Gizlenenler" görünümünden geri alınır. Gizlenen fatura özet
+  // kartlara, otomasyon kartlarına ve KDV kontrol listesine de girmez (kural:
+  // lib/integrations/e-invoice/incoming-list-query.ts → IncomingHiddenFilter).
+  const [showHidden, setShowHidden] = useState(false)
+  const [hiddenCount, setHiddenCount] = useState(0)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [hidingBusy, setHidingBusy] = useState(false)
 
   // --- Tarih aralığı: hazır dönem YA DA elle girilen aralık --------------------
   // dateField, aralığın hangi tarihe uygulanacağını seçer: belge tarihi mi, zarfın
@@ -371,6 +393,7 @@ export default function GelenEFaturalarPage() {
       if (debouncedText.taxNumber) params.set("taxNumber", debouncedText.taxNumber)
       if (debouncedText.minAmount) params.set("minAmount", debouncedText.minAmount)
       if (debouncedText.maxAmount) params.set("maxAmount", debouncedText.maxAmount)
+      if (showHidden) params.set("hidden", "only")
       const res = await fetch(`/api/e-donusum/inbox?${params.toString()}`)
       const data = await res.json()
       if (seq !== requestSeq.current) return
@@ -387,6 +410,10 @@ export default function GelenEFaturalarPage() {
       setStats(data.stats || emptyStats())
       setMissingSentDate(Number(data.missingSentDate || 0))
       setEmptyHint(data.emptyHint ?? null)
+      setHiddenCount(Number(data.hiddenCount || 0))
+      // Seçim yalnız ekrandaki satırlar içindir; liste değişince eski seçim kalmasın
+      // (başka sayfadaki görünmeyen faturayı gizlemek sürpriz olurdu).
+      setSelected(new Set())
     } catch (e: any) {
       if (seq !== requestSeq.current) return
       toast({
@@ -408,6 +435,7 @@ export default function GelenEFaturalarPage() {
     profileFilter,
     linkFilter,
     debouncedText,
+    showHidden,
     toast,
   ])
 
@@ -482,6 +510,75 @@ export default function GelenEFaturalarPage() {
     } finally {
       setRespondingUuid(null)
     }
+  }
+
+  /**
+   * Gizle / listede göster. `undoable`: başarı bildiriminde "Geri al" düğmesi çıkar
+   * (geri alma kendisi geri alınamaz — sonsuz zincir olmasın).
+   */
+  const setInvoicesHidden = async (
+    targets: IncomingRow[],
+    hidden: boolean,
+    undoable = true,
+  ): Promise<void> => {
+    if (!companyId || targets.length === 0) return
+    // Gizlemek GİB'deki yanıt süresini durdurmaz: ticari fatura 8 gün içinde
+    // yanıtlanmazsa kabul edilmiş sayılır, gizlenince "yanıt bekleyen" kartında da
+    // görünmez. Bunu söylemeden gizlemek sessiz bir kabul olurdu.
+    const bekleyen = hidden ? targets.filter(yanitBekliyor) : []
+    if (
+      bekleyen.length > 0 &&
+      !(await confirm({
+        title: "Yanıt bekleyen ticari fatura",
+        description: `${
+          targets.length === 1 ? "Bu ticari fatura" : `Seçilenlerden ${bekleyen.length} ticari fatura`
+        } henüz kabul ya da red edilmedi. Gizlemek yanıt süresini durdurmaz: GİB'de 8 gün içinde yanıtlanmayan ticari fatura kabul edilmiş sayılır. Gizlenen fatura "yanıt bekleyen" uyarısında da görünmez. Yine de gizlensin mi?`,
+        confirmLabel: "Gizle",
+      }))
+    ) {
+      return
+    }
+    setHidingBusy(true)
+    try {
+      const res = await fetch("/api/e-donusum/inbox/hide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId, uuids: targets.map((r) => r.uuid), hidden }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast({
+          title: hidden ? "Gizlenemedi" : "Listeye alınamadı",
+          description: data.error || "Bilinmeyen hata",
+          variant: "destructive",
+        })
+        return
+      }
+      const n = targets.length
+      const ad = n === 1 ? (targets[0].invoiceNo || "Fatura") : `${n} fatura`
+      toast({
+        title: hidden ? `${ad} gizlendi` : `${ad} yeniden listede`,
+        description: hidden
+          ? "Silinmedi — “Gizlenenler” görünümünden geri alabilirsiniz."
+          : undefined,
+        action: undoable ? (
+          <ToastAction altText="Geri al" onClick={() => void setInvoicesHidden(targets, !hidden, false)}>
+            Geri al
+          </ToastAction>
+        ) : undefined,
+      })
+      await fetchList()
+    } catch (e: any) {
+      toast({ title: "Hata", description: e?.message || "İşlem sırasında hata", variant: "destructive" })
+    } finally {
+      setHidingBusy(false)
+    }
+  }
+
+  const toggleShowHidden = () => {
+    setPage(1)
+    setSelected(new Set())
+    setShowHidden((v) => !v)
   }
 
   const handleSync = async () => {
@@ -569,6 +666,19 @@ export default function GelenEFaturalarPage() {
     setEndDate(toDateInput(new Date()))
     setCustomRange(true)
   }
+
+  // Seçim sütunu yalnız yazabilene: gizlemek firmanın listesini herkes için değiştirir.
+  const selectable = canEdit
+  const columnCount = selectable ? 14 : 13
+  const selectedRows = rows.filter((r) => selected.has(r.uuid))
+  const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.uuid))
+  const toggleRow = (uuid: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(uuid)
+      else next.delete(uuid)
+      return next
+    })
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const firstRowNo = total === 0 ? 0 : (page - 1) * pageSize + 1
@@ -699,6 +809,7 @@ export default function GelenEFaturalarPage() {
                 taxNumber: debouncedText.taxNumber,
                 minAmount: debouncedText.minAmount,
                 maxAmount: debouncedText.maxAmount,
+                hidden: showHidden ? "only" : "",
               }}
             />
             <Button variant="outline" onClick={fetchList} disabled={isLoading || !range.valid}>
@@ -802,11 +913,21 @@ export default function GelenEFaturalarPage() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
-            {total} fatura listelendi
+            {showHidden ? `${total} gizlenmiş fatura` : `${total} fatura listelendi`}
             {total > rows.length && (
               <span className="ml-2 text-xs font-normal text-muted-foreground">
                 ({firstRowNo}-{lastRowNo} arası gösteriliyor)
               </span>
+            )}
+            {/* Gizlenenler sessizce kaybolmasın: sayı başlıkta da görünür. */}
+            {!showHidden && hiddenCount > 0 && (
+              <button
+                type="button"
+                onClick={toggleShowHidden}
+                className="ml-2 text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                · {hiddenCount} gizli
+              </button>
             )}
           </CardTitle>
           <CardDescription>
@@ -862,7 +983,76 @@ export default function GelenEFaturalarPage() {
                 Temizle
               </Button>
             )}
+            {(showHidden || hiddenCount > 0) && (
+              <Button
+                type="button"
+                variant={showHidden ? "default" : "outline"}
+                size="sm"
+                onClick={toggleShowHidden}
+                aria-pressed={showHidden}
+                title={
+                  showHidden
+                    ? "Gizlenenler görünümünden çık"
+                    : "Listede gizlenen faturaları göster"
+                }
+              >
+                <EyeOff className="mr-2 h-4 w-4" />
+                Gizlenenler
+                <span className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">
+                  {hiddenCount}
+                </span>
+              </Button>
+            )}
           </div>
+
+          {showHidden && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800 dark:border-slate-600 dark:bg-slate-800/40 dark:text-slate-200">
+              <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                <EyeOff className="mr-1 h-4 w-4 shrink-0" />
+                Listede gizlenen faturalar. Bunlar özet kartlarda, uyarı kartlarında ve KDV
+                kontrolünde sayılmaz; belge silinmedi.
+                <WriteAction>
+                  <span>“Listede göster” ile geri alabilirsiniz.</span>
+                </WriteAction>
+              </span>
+              <Button type="button" variant="outline" size="sm" onClick={toggleShowHidden}>
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Listeye dön
+              </Button>
+            </div>
+          )}
+
+          {/* Seçim şeridi ekranın ALTINA sabit: tablonun üstünde açılınca satırları aşağı
+              itiyordu ve art arda işaretlenen ikinci kutu aynı satıra denk gelip seçimi geri
+              alıyordu (Chrome'da yakalandı). Sabit şerit uzun listenin dibinde de görünür. */}
+          {selectable && selectedRows.length > 0 && (
+            <div
+              role="region"
+              aria-label="Seçili faturalar"
+              className="fixed bottom-4 left-1/2 z-40 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg border border-kobipo-blue/30 bg-background px-3 py-2 text-sm shadow-lg dark:border-kobipo-mid/40"
+            >
+              <span className="font-medium">{selectedRows.length} fatura seçildi</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={hidingBusy}
+                onClick={() => setInvoicesHidden(selectedRows, !showHidden)}
+              >
+                {hidingBusy ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : showHidden ? (
+                  <Eye className="mr-2 h-4 w-4" />
+                ) : (
+                  <EyeOff className="mr-2 h-4 w-4" />
+                )}
+                {showHidden ? "Listede göster" : "Listeden gizle"}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                Seçimi kaldır
+              </Button>
+            </div>
+          )}
 
           {showFilters && (
             <div className="mb-4 grid gap-3 rounded-md border bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -989,6 +1179,19 @@ export default function GelenEFaturalarPage() {
             <Table>
               <TableHeader>
                 <StyledTableHeaderRow>
+                  {selectable && (
+                    <StyledTableHead className="w-8">
+                      <input
+                        type="checkbox"
+                        aria-label="Sayfadaki faturaların hepsini seç"
+                        checked={allOnPageSelected}
+                        disabled={rows.length === 0}
+                        onChange={(e) =>
+                          setSelected(e.target.checked ? new Set(rows.map((r) => r.uuid)) : new Set())
+                        }
+                      />
+                    </StyledTableHead>
+                  )}
                   <StyledTableHead>
                     Fatura Tarihi
                     {dateField === "docDate" && <RangeMark />}
@@ -1013,15 +1216,21 @@ export default function GelenEFaturalarPage() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={13} className="py-10 text-center">
+                    <TableCell colSpan={columnCount} className="py-10 text-center">
                       <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={13} className="py-10 text-center">
+                    <TableCell colSpan={columnCount} className="py-10 text-center">
                       <Inbox className="mx-auto mb-3 h-12 w-12 text-muted-foreground/40" />
-                      {widen ? (
+                      {showHidden && !widen ? (
+                        <p className="text-muted-foreground">
+                          {activeFilterCount > 0
+                            ? "Filtreye uyan gizlenmiş fatura yok."
+                            : "Bu aralıkta gizlenmiş fatura yok."}
+                        </p>
+                      ) : widen ? (
                         // Kayıt var, yalnız seçili aralığın dışında. "Hiç fatura yok"
                         // demek yanlış olurdu: kullanıcı veri gelmemiş sanıyor.
                         <div className="space-y-2">
@@ -1052,9 +1261,12 @@ export default function GelenEFaturalarPage() {
                         </p>
                       ) : (
                         <p className="text-muted-foreground">
-                          {activeFilterCount > 0
-                            ? "Aramaya / filtreye uyan kayıt yok."
-                            : "Bu firmada henüz çekilmiş gelen fatura yok. 'Mysoft'tan Senkronize Et' butonuna basın."}
+                          {/* Liste boş ama faturalar gizlenmişse "hiç fatura yok" demek yanlış olurdu. */}
+                          {hiddenCount > 0
+                            ? `${activeFilterCount > 0 ? "Filtreye uyan" : "Bu aralıktaki"} ${hiddenCount} fatura listede gizli — “Gizlenenler”den görebilirsiniz.`
+                            : activeFilterCount > 0
+                              ? "Aramaya / filtreye uyan kayıt yok."
+                              : "Bu firmada henüz çekilmiş gelen fatura yok. 'Mysoft'tan Senkronize Et' butonuna basın."}
                         </p>
                       )}
                     </TableCell>
@@ -1074,6 +1286,16 @@ export default function GelenEFaturalarPage() {
                         href={rowHref}
                         hrefLabel={row.invoiceNo ? `${row.invoiceNo} detayı` : undefined}
                       >
+                        {selectable && (
+                          <TableCell data-row-link-skip onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`${row.invoiceNo || "Fatura"} seç`}
+                              checked={selected.has(row.uuid)}
+                              onChange={(e) => toggleRow(row.uuid, e.target.checked)}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="text-xs whitespace-nowrap">
                           <div>{fmtDate(row.date)}</div>
                           {fmtTimeIfMeaningful(row.date) && (
@@ -1147,6 +1369,16 @@ export default function GelenEFaturalarPage() {
                                 Bağlı
                               </span>
                             ))}
+                          {row.hiddenAt && (
+                            <div
+                              className="mt-1 flex w-fit items-center gap-1 text-[10px] text-muted-foreground"
+                              title={`Gizlendi: ${fmtDateTime(row.hiddenAt)}${row.hiddenBy ? ` · ${row.hiddenBy}` : ""}`}
+                            >
+                              <EyeOff className="h-3 w-3 shrink-0" />
+                              {fmtDate(row.hiddenAt)}
+                              {row.hiddenBy ? ` · ${row.hiddenBy}` : ""}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap">
                           {fmtDateTime(row.syncedAt)}
@@ -1185,6 +1417,19 @@ export default function GelenEFaturalarPage() {
                                   </Button>
                                 </WriteAction>
                               )}
+                            <WriteAction>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setInvoicesHidden([row], !row.hiddenAt)}
+                                disabled={hidingBusy}
+                                title={row.hiddenAt ? "Listede göster" : "Listeden gizle"}
+                                aria-label={row.hiddenAt ? "Listede göster" : "Listeden gizle"}
+                                className="text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-500/15 dark:hover:text-slate-200"
+                              >
+                                {row.hiddenAt ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                              </Button>
+                            </WriteAction>
                             <ExportAction>
                               <Button
                                 variant="ghost"
@@ -1341,19 +1586,19 @@ function StatCard({
 }
 
 /**
- * Tarih aralığının HANGİ sütuna uygulandığını başlıkta gösterir.
+ * Tarih aralığının HANGİ sütuna uygulandığını başlıkta gösterir: başlık yazısının
+ * yanında küçük takvim simgesi, açıklaması üzerine gelince.
  *
- * Renkler başlık SATIRINA göre seçili: satır `bg-kobipo-blue` (koyu mavi) ve yazı
- * beyaz. Mavi zemine mavi rozet koymak onu görünmez yapıyordu — saydam beyaz zemin
- * + beyaz yazı hem açık hem koyu temada okunur kalıyor.
+ * 2026-10-10'a kadar burada "aralık" yazılı bir rozet vardı; başlığı iki satıra
+ * kırıyordu ve ne olduğu anlaşılmıyordu (kullanıcı sordu). Renk başlıktan gelir
+ * (`text-current`): satır koyu mavi zemin + beyaz yazı, koyu temada da okunur kalır.
  */
 function RangeMark() {
+  const aciklama = "Sağ üstte seçilen tarih aralığı bu sütuna uygulanıyor"
   return (
-    <span
-      className="ml-1.5 rounded border border-white/40 bg-white/20 px-1 py-0.5 text-[9px] font-semibold normal-case text-white dark:border-kobipo-text/40 dark:bg-kobipo-text/15 dark:text-kobipo-text"
-      title="Seçili tarih aralığı bu sütuna uygulanıyor"
-    >
-      aralık
+    <span className="ml-1 inline-flex align-[-2px]" title={aciklama}>
+      <CalendarRange className="h-3.5 w-3.5 text-current opacity-80" aria-hidden />
+      <span className="sr-only">{aciklama}</span>
     </span>
   )
 }
